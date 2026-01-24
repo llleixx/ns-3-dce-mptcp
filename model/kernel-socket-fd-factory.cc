@@ -93,6 +93,7 @@ KernelSocketFdFactory::KernelSocketFdFactory ()
     m_logFile (0)
 {
   TypeId::LookupByNameFailSafe ("ns3::LteUeNetDevice", &m_lteUeTid);
+  TypeId::LookupByNameFailSafe ("ns3::NrUeNetDevice", &m_nrUeTid);
   m_variable = CreateObject<UniformRandomVariable> ();
 }
 
@@ -443,7 +444,7 @@ KernelSocketFdFactory::RxFromDevice (Ptr<NetDevice> device, Ptr<const Packet> p,
     unsigned char   h_source[6];
     uint16_t        h_proto;
   } *hdr = (struct ethhdr *)packet.buffer;
-  if (device->GetInstanceTypeId () != m_lteUeTid)
+  if (device->GetInstanceTypeId () != m_lteUeTid && device->GetInstanceTypeId () != m_nrUeTid)
     {
       Mac48Address realFrom;
       if (Mac48Address::IsMatchingType (from))
@@ -593,7 +594,7 @@ KernelSocketFdFactory::NotifyAddDeviceTask (Ptr<NetDevice> device)
 
   m_devices.push_back (std::make_pair (device,dev));
   Ptr<Node> node = GetObject<Node> ();
-  if (device->GetInstanceTypeId () == m_lteUeTid)
+  if (device->GetInstanceTypeId () == m_lteUeTid || device->GetInstanceTypeId () == m_nrUeTid)
     {
       node->RegisterProtocolHandler (MakeCallback (&KernelSocketFdFactory::RxFromDevice, this),
                                      0, device, false);

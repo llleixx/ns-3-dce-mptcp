@@ -152,6 +152,7 @@ private:
   Ptr<RandomVariableStream> m_ranvar;
   uint16_t m_pid;
   TypeId m_lteUeTid;
+  TypeId m_nrUeTid;
 };
 
 } // namespace ns3
