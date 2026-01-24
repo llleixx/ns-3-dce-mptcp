@@ -1,0 +1,13 @@
+diff --git a/src/wifi/model/he/he-frame-exchange-manager.cc b/src/wifi/model/he/he-frame-exchange-manager.cc
+index c364e91c0..81db4be41 100644
+--- a/src/wifi/model/he/he-frame-exchange-manager.cc
++++ b/src/wifi/model/he/he-frame-exchange-manager.cc
+@@ -1297,7 +1297,7 @@ HeFrameExchangeManager::ReceiveMpdu (Ptr<WifiMacQueueItem> mpdu, RxSignalInfo rx
+                                      const WifiTxVector& txVector, bool inAmpdu)
+ {
+   // The received MPDU is either broadcast or addressed to this station
+-  NS_ASSERT (mpdu->GetHeader ().GetAddr1 ().IsBroadcast ()
++  NS_ASSERT (mpdu->GetHeader ().GetAddr1 ().IsGroup ()
+              || mpdu->GetHeader ().GetAddr1 () == m_self);
+ 
+   const WifiMacHeader& hdr = mpdu->GetHeader ();
