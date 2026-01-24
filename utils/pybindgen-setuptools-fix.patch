@@ -1,0 +1,13 @@
+diff --git a/setup.py b/setup.py
+index eefcc4d..16f89ff 100644
+--- a/setup.py
++++ b/setup.py
+@@ -8,7 +8,7 @@ with open('README.rst') as file_:
+ setup(name='PyBindGen',
+       use_scm_version={"version_scheme": "post-release",
+                        "write_to": "pybindgen/version.py"},
+-      setup_requires=['setuptools_scm'],
++      setup_requires=['setuptools_scm==7.1.0'],
+       description='Python Bindings Generator',
+       author='Gustavo Carneiro',
+       author_email='gjcarneiro@gmail.com',
