@@ -11,6 +11,8 @@ Direct Code Execution (DCE) is a framework for ns-3 that provides facilities to 
 More explanation available on:
 https://www.nsnam.org/about/projects/direct-code-execution/
 
+In this fork, we mainly fix dce-v1.12 for 5G-NR and Wi-Fi MPTCP simulation, which works under ubuntu 20.04. More info available on: https://github.com/wonderfulnx/ns-3-mptcp-sim-bundle
+
 Documentation
 ===
 
