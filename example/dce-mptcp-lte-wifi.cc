@@ -61,13 +61,15 @@ int main (int argc, char *argv[])
   std::string bufSize = "";
   bool disWifi = false;
   bool disLte = false;
-  double stopTime = 45.0;
+  bool iperfyC = false;
+  double stopTime = 60.0;
   std::string p2pdelay = "10ms";
 
   CommandLine cmd;
   cmd.AddValue ("bufsize", "Snd/Rcv buffer size.", bufSize);
   cmd.AddValue ("disWifi", "Disable WiFi.", disWifi);
   cmd.AddValue ("disLte", "Disable LTE.", disLte);
+  cmd.AddValue ("iperfyC", "Enable the `-y C` option in iperf.", iperfyC);
   cmd.AddValue ("stopTime", "StopTime of simulatino.", stopTime);
   cmd.AddValue ("p2pDelay", "Delay of p2p links. default is 10ms.", p2pdelay);
   cmd.Parse (argc, argv);
@@ -112,7 +114,7 @@ int main (int argc, char *argv[])
                                                 "ErrorUnit", EnumValue (RateErrorModel::ERROR_UNIT_PACKET)
                                                 );
 
-  setPos (nodes.Get (0), -20, 30 / 2, 0);
+  setPos (nodes.Get (0), 0, 30 / 2, 0);
   setPos (nodes.Get (1), 100, 30 / 2, 0);
   // LTE
   if (!disLte)
@@ -123,7 +125,7 @@ int main (int argc, char *argv[])
 
       lteHelper->SetEpcHelper (epcHelper);
       Ptr<Node> pgw = epcHelper->GetPgwNode ();
-      setPos (enbNodes.Get (0), 60, -4000, 0);
+      setPos (enbNodes.Get (0), 60, -400, 0);
 
       NetDeviceContainer enbLteDevs = lteHelper->InstallEnbDevice (enbNodes);
       NetDeviceContainer ueLteDevs = lteHelper->InstallUeDevice (nodes.Get (0));
@@ -135,6 +137,9 @@ int main (int argc, char *argv[])
       // setup ip routes
       cmd_oss.str ("");
       cmd_oss << "rule add from " << if1.GetAddress (0, 0) << " table " << 1;
+      LinuxStackHelper::RunIp (nodes.Get (0), Seconds (0.1), cmd_oss.str ().c_str ());
+      cmd_oss.str ("");
+      cmd_oss << "route add 7.0.0.0/8 dev sim" << 0 << " scope link table " << 1;
       LinuxStackHelper::RunIp (nodes.Get (0), Seconds (0.1), cmd_oss.str ().c_str ());
       cmd_oss.str ("");
       cmd_oss << "route add default via " << "7.0.0.1 "  << " dev sim" << 0 << " table " << 1;
@@ -155,6 +160,9 @@ int main (int argc, char *argv[])
       cmd_oss << "route add 10.2." << 0 << ".0/24 dev sim" << 0 << " scope link table " << (1);
       LinuxStackHelper::RunIp (nodes.Get (1), Seconds (0.1), cmd_oss.str ().c_str ());
       setPos (pgw, 70, 0, 0);
+      cmd_oss.str ("");
+      cmd_oss << "route add default via " << if2.GetAddress (1, 0) << " dev sim" << 0 << " table " << (1);
+      LinuxStackHelper::RunIp (nodes.Get (1), Seconds (0.1), cmd_oss.str ().c_str ());
     }
 
   if (!disWifi)
@@ -183,17 +191,8 @@ int main (int argc, char *argv[])
               << devices1.Get (0)->GetIfIndex () << " table " << 2;
       LinuxStackHelper::RunIp (nodes.Get (0), Seconds (0.1), cmd_oss.str ().c_str ());
       cmd_oss.str ("");
-      cmd_oss << "route add 10.1.0.0/16 via " << if1.GetAddress (0, 0) << " dev sim0";
+      cmd_oss << "route add 10.1.0.0/24 via " << if1.GetAddress (1, 0) << " dev sim0";
       LinuxStackHelper::RunIp (routers.Get (0), Seconds (0.2), cmd_oss.str ().c_str ());
-
-      // Global default route
-      if (disLte)
-        {
-          cmd_oss.str ("");
-          cmd_oss << "route add default via " << if1.GetAddress (1, 0) << " dev sim" 
-                  << devices1.Get (0)->GetIfIndex ();
-          LinuxStackHelper::RunIp (nodes.Get (0), Seconds (0.1), cmd_oss.str ().c_str ());
-        }
 
       // Down/Up
 #if 0
@@ -217,19 +216,23 @@ int main (int argc, char *argv[])
       cmd_oss << "rule add from " << if2.GetAddress (0, 0) << " table " << (2);
       LinuxStackHelper::RunIp (nodes.Get (1), Seconds (0.1), cmd_oss.str ().c_str ());
       cmd_oss.str ("");
-      cmd_oss << "route add 10.2." << 1 << ".0/24 dev sim" << 1 << " scope link table " << (2);
+      cmd_oss << "route add 10.2." << (disLte?0:1) << ".0/24 dev sim" << (disLte?0:1) << " scope link table " << (2);
       LinuxStackHelper::RunIp (nodes.Get (1), Seconds (0.1), cmd_oss.str ().c_str ());
       cmd_oss.str ("");
-      cmd_oss << "route add 10.1.0.0/16 via " << if2.GetAddress (1, 0) << " dev sim" << 1 << " table " << (2);
+      cmd_oss << "route add default via " << if2.GetAddress (1, 0) << " dev sim" << (disLte?0:1) << " table " << (2);
       LinuxStackHelper::RunIp (nodes.Get (1), Seconds (0.1), cmd_oss.str ().c_str ());
       cmd_oss.str ("");
-      cmd_oss << "route add 10.2.0.0/16 via " << if2.GetAddress (1, 0) << " dev sim1";
+      cmd_oss << "route add 10.2." << (disLte?0:1) << ".0/24 via " << if2.GetAddress (1, 0) << " dev sim1";
       LinuxStackHelper::RunIp (routers.Get (0), Seconds (0.2), cmd_oss.str ().c_str ());
-      setPos (routers.Get (0), 70, 30, 0);
+      setPos (routers.Get (0), 5, 30, 0);
     }
 
   // default route
-  LinuxStackHelper::RunIp (nodes.Get (0), Seconds (0.1), "route add default via 7.0.0.1 dev sim0");
+  if (!disLte) {
+    LinuxStackHelper::RunIp (nodes.Get (0), Seconds (0.1), "route add default via 7.0.0.1 dev sim0");
+  } else {
+    LinuxStackHelper::RunIp (nodes.Get (0), Seconds (0.1), "route add default via 10.1.0.2 dev sim0");
+  }
   LinuxStackHelper::RunIp (nodes.Get (1), Seconds (0.1), "route add default via 10.2.0.2 dev sim0");
   LinuxStackHelper::RunIp (nodes.Get (0), Seconds (0.1), "rule show");
   LinuxStackHelper::RunIp (nodes.Get (0), Seconds (5.1), "route show table all");
@@ -288,7 +291,9 @@ int main (int argc, char *argv[])
   dce.ResetEnvironment ();
   dce.AddArgument ("-c");
   dce.AddArgument ("10.2.0.1");
-  dce.ParseArguments ("-y C");
+  if (iperfyC) {
+    dce.ParseArguments ("-y C");
+  }
   dce.AddArgument ("-i");
   dce.AddArgument ("1");
   dce.AddArgument ("--time");

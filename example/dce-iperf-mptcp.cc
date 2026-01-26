@@ -19,8 +19,10 @@ void setPos (Ptr<Node> n, int x, int y, int z)
 int main (int argc, char *argv[])
 {
   uint32_t nRtrs = 2;
+  bool disMPTCP = false;
   CommandLine cmd;
   cmd.AddValue ("nRtrs", "Number of routers. Default 2", nRtrs);
+  cmd.AddValue ("disMPTCP", "Disable multipath TCP, default false", disMPTCP);
   cmd.Parse (argc, argv);
 
   NodeContainer nodes, routers;
@@ -99,11 +101,13 @@ int main (int argc, char *argv[])
   LinuxStackHelper::RunIp (nodes.Get (1), Seconds (0.1), "route add default via 10.2.0.2 dev sim0");
   LinuxStackHelper::RunIp (nodes.Get (0), Seconds (0.1), "rule show");
 
-  // Schedule Up/Down (XXX: didn't work...)
-  LinuxStackHelper::RunIp (nodes.Get (1), Seconds (1.0), "link set dev sim0 multipath off");
-  LinuxStackHelper::RunIp (nodes.Get (1), Seconds (15.0), "link set dev sim0 multipath on");
-  LinuxStackHelper::RunIp (nodes.Get (1), Seconds (30.0), "link set dev sim0 multipath off");
-
+  // Schedule Up/Down seems does not work. My guess is that only new applications will be affected.
+  // Change the original schedule to fixed on or off here.
+  if (disMPTCP) {
+    LinuxStackHelper::RunIp (nodes.Get (1), Seconds (1.0), "link set dev sim0 multipath off");
+  } else {
+    LinuxStackHelper::RunIp (nodes.Get (1), Seconds (1.0), "link set dev sim0 multipath on");
+  }
 
   // debug
   stack.SysctlSet (nodes, ".net.mptcp.mptcp_debug", "1");
