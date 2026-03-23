@@ -1,0 +1,31 @@
+# -*- Mode: python; py-indent-offset: 4; indent-tabs-mode: nil; coding: utf-8; -*-
+
+import ns3waf
+
+
+def configure(conf):
+    pass
+
+
+def build(bld):
+    bld.build_a_script(
+        'dce',
+        needed=[
+            'core',
+            'network',
+            'internet',
+            'point-to-point',
+            'mobility',
+            'applications',
+            'dce',
+            'lte',
+            'wifi'
+        ],
+        target='bin/dce-mini-debug',
+        source=[
+            'dce-mini-debug.cc',
+            '../app-test/rate-dual-helper.cc',
+            '../app-test/rate-dual-application.cc'
+        ],
+        lib=['ns3.35-nr-debug']
+    )

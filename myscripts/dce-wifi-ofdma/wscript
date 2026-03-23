@@ -1,0 +1,22 @@
+# -*- Mode: python; py-indent-offset: 4; indent-tabs-mode: nil; coding: utf-8; -*-
+
+import ns3waf
+
+def configure(conf):
+    pass
+
+def build(bld):
+    bld.build_a_script(
+        'dce',
+        needed = [
+            'core',
+            'network',
+            'internet',
+            'mobility',
+            'dce',
+            'wifi',
+            'spectrum'
+        ],
+        target = 'bin/dce-wifi-ofdma',
+        source = ['dce-wifi-ofdma.cc']
+    )
