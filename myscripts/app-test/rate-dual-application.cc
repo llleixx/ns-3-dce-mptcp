@@ -2,13 +2,20 @@
 #include "ns3/log.h"
 #include "ns3/address.h"
 #include "ns3/inet-socket-address.h"
+#include "ns3/inet6-socket-address.h"
 #include "ns3/packet.h"
+#include "ns3/packet-socket-address.h"
 #include "ns3/socket.h"
 #include "ns3/simulator.h"
+#include "ns3/tcp-socket-factory.h"
 #include "ns3/double.h"
+#include "ns3/enum.h"
 #include "ns3/uinteger.h"
 #include "ns3/string.h"
 #include "ns3/pointer.h"
+#include "ns3/trace-source-accessor.h"
+
+#include <algorithm>
 
 namespace ns3 {
 
@@ -26,30 +33,67 @@ RateDualModeApplication::GetTypeId (void)
                    AddressValue (),
                    MakeAddressAccessor (&RateDualModeApplication::m_peer),
                    MakeAddressChecker ())
+    .AddAttribute ("Local",
+                   "The address on which to bind the socket. If not set, it is generated automatically.",
+                   AddressValue (),
+                   MakeAddressAccessor (&RateDualModeApplication::m_local),
+                   MakeAddressChecker ())
     .AddAttribute ("Protocol", "The type of protocol to use.",
-                   TypeIdValue (Socket::GetTypeId ()),
+                   TypeIdValue (TcpSocketFactory::GetTypeId ()),
                    MakeTypeIdAccessor (&RateDualModeApplication::m_tid),
                    MakeTypeIdChecker ())
     .AddAttribute ("PacketSize", "The size of packets sent in payload",
-                   UintegerValue (1000), 
+                   UintegerValue (1500), 
                    MakeUintegerAccessor (&RateDualModeApplication::m_packetSize),
                    MakeUintegerChecker<uint32_t> (1))
-    .AddAttribute ("AvgRate", "Documented average data rate",
+    .AddAttribute ("SteadyRate",
+                   "Data rate used in the steady state.",
                    DataRateValue (DataRate ("50.9Kbps")), 
-                   MakeDataRateAccessor (&RateDualModeApplication::m_avgRate),
+                   MakeDataRateAccessor (&RateDualModeApplication::m_steadyRate),
                    MakeDataRateChecker ())
-    .AddAttribute ("PeakRate", "Documented peak data rate",
+    .AddAttribute ("BurstRate", "Data rate used in the burst state.",
                    DataRateValue (DataRate ("92.79Mbps")), 
-                   MakeDataRateAccessor (&RateDualModeApplication::m_peakRate),
+                   MakeDataRateAccessor (&RateDualModeApplication::m_burstRate),
                    MakeDataRateChecker ())
-    .AddAttribute ("BurstProb", "Probability of entering burst state per evaluation",
+    .AddAttribute ("BurstProb",
+                   "LegacyProbability mode only: probability of entering burst state "
+                   "at each state evaluation.",
                    DoubleValue (0.0005), 
                    MakeDoubleAccessor (&RateDualModeApplication::m_burstProb),
                    MakeDoubleChecker<double> (0.0, 1.0))
-    .AddAttribute ("StateInterval", "Random variable for time between state evaluations",
+    .AddAttribute ("TrafficModel",
+                   "Traffic model: Duration alternates steady/burst states using explicit time distributions; "
+                   "LegacyProbability keeps the older BurstProb/StateInterval behavior.",
+                   EnumValue (TRAFFIC_MODEL_DURATION),
+                   MakeEnumAccessor (&RateDualModeApplication::m_trafficModel),
+                   MakeEnumChecker (TRAFFIC_MODEL_DURATION, "Duration",
+                                    TRAFFIC_MODEL_LEGACY_PROBABILITY, "LegacyProbability"))
+    .AddAttribute ("SteadyTime",
+                   "Duration distribution of the steady state when TrafficModel=Duration.",
+                   StringValue ("ns3::ConstantRandomVariable[Constant=1.0]"),
+                   MakePointerAccessor (&RateDualModeApplication::m_steadyTime),
+                   MakePointerChecker<RandomVariableStream> ())
+    .AddAttribute ("BurstTime",
+                   "Duration distribution of the burst state when TrafficModel=Duration.",
+                   StringValue ("ns3::ConstantRandomVariable[Constant=0.0001]"),
+                   MakePointerAccessor (&RateDualModeApplication::m_burstTime),
+                   MakePointerChecker<RandomVariableStream> ())
+    .AddAttribute ("StateInterval",
+                   "LegacyProbability mode only: random variable for time between state evaluations.",
                    StringValue ("ns3::NormalRandomVariable[Mean=1.0|Variance=0.01|Bound=2.0]"), 
                    MakePointerAccessor (&RateDualModeApplication::m_stateIntervalRng),
                    MakePointerChecker<RandomVariableStream> ())
+    .AddAttribute ("InitialSendDelay",
+                   "Delay payload transmission after TCP connect succeeds to allow MPTCP subflows to come up",
+                   TimeValue (Seconds (0.0)),
+                   MakeTimeAccessor (&RateDualModeApplication::m_initialSendDelay),
+                   MakeTimeChecker ())
+    .AddTraceSource ("Tx", "A new packet is sent",
+                     MakeTraceSourceAccessor (&RateDualModeApplication::m_txTrace),
+                     "ns3::Packet::TracedCallback")
+    .AddTraceSource ("TxWithAddresses", "A new packet is sent",
+                     MakeTraceSourceAccessor (&RateDualModeApplication::m_txTraceWithAddresses),
+                     "ns3::Packet::TwoAddressTracedCallback")
   ;
   return tid;
 }
@@ -60,6 +104,7 @@ RateDualModeApplication::RateDualModeApplication ()
   m_sendEvent = EventId ();
   m_stateEvent = EventId ();
   m_uniformRng = CreateObject<UniformRandomVariable> ();
+  m_unsentPacket = 0;
 }
 
 RateDualModeApplication::~RateDualModeApplication() {}
@@ -68,6 +113,12 @@ bool
 RateDualModeApplication::IsConnected () const
 {
   return m_connected;
+}
+
+bool
+RateDualModeApplication::HasConnected () const
+{
+  return m_hasConnected;
 }
 
 uint32_t
@@ -88,21 +139,118 @@ RateDualModeApplication::IsConnectInProgress () const
   return m_connectInProgress;
 }
 
+bool
+RateDualModeApplication::HasSentPayload () const
+{
+  return m_hasSentPayload;
+}
+
+Time
+RateDualModeApplication::GetFirstPayloadTxTime () const
+{
+  return m_firstPayloadTxTime;
+}
+
 void RateDualModeApplication::DoDispose (void)
 {
+  CancelEvents ();
+  m_unsentPacket = 0;
   m_socket = 0;
   Application::DoDispose ();
 }
 
-void RateDualModeApplication::StartApplication (void)
+void
+RateDualModeApplication::CancelEvents (void)
 {
+  Simulator::Cancel (m_sendEvent);
+  Simulator::Cancel (m_stateEvent);
+  m_unsentPacket = 0;
+}
+
+Time
+RateDualModeApplication::SampleStateDuration (Ptr<RandomVariableStream> rng,
+                                              const char *attributeName) const
+{
+  NS_ABORT_MSG_IF (rng == 0, attributeName << " random variable is not configured");
+  const double seconds = rng->GetValue ();
+  NS_ABORT_MSG_IF (seconds < 0.0,
+                   attributeName << " returned a negative duration");
+  return Seconds (seconds);
+}
+
+void
+RateDualModeApplication::StartApplication (void)
+{
+  m_running = true;
+  CancelEvents ();
+
+  const uint64_t steadyBps = m_steadyRate.GetBitRate ();
+  const uint64_t burstBps = m_burstRate.GetBitRate ();
+
+  NS_ABORT_MSG_IF (burstBps < steadyBps,
+                   "BurstRate must be greater than or equal to SteadyRate");
+
+  if (m_trafficModel == TRAFFIC_MODEL_DURATION)
+    {
+      NS_ABORT_MSG_IF (m_steadyTime == 0, "SteadyTime random variable is not configured");
+      NS_ABORT_MSG_IF (m_burstTime == 0, "BurstTime random variable is not configured");
+      m_inBurstState = false;
+    }
+  else
+    {
+      NS_ABORT_MSG_IF (m_stateIntervalRng == 0, "StateInterval random variable is not configured");
+    }
+  m_currentRate = m_steadyRate;
+
   if (!m_socket)
     {
       m_socket = Socket::CreateSocket (GetNode (), m_tid);
+      NS_ABORT_MSG_IF (m_socket == 0, "Failed to create socket");
+      if (m_socket->GetSocketType () != Socket::NS3_SOCK_STREAM &&
+          m_socket->GetSocketType () != Socket::NS3_SOCK_SEQPACKET)
+        {
+          NS_FATAL_ERROR ("RateDualModeApplication requires a stream/seqpacket socket. "
+                          "Use a TCP-like SocketFactory.");
+        }
+      int ret = -1;
+
+      if (!m_local.IsInvalid ())
+        {
+          NS_ABORT_MSG_IF ((Inet6SocketAddress::IsMatchingType (m_peer) &&
+                            InetSocketAddress::IsMatchingType (m_local)) ||
+                           (InetSocketAddress::IsMatchingType (m_peer) &&
+                            Inet6SocketAddress::IsMatchingType (m_local)),
+                           "Incompatible peer and local address IP version");
+          ret = m_socket->Bind (m_local);
+        }
+      else
+        {
+          if (Inet6SocketAddress::IsMatchingType (m_peer))
+            {
+              ret = m_socket->Bind6 ();
+            }
+          else if (InetSocketAddress::IsMatchingType (m_peer) ||
+                   PacketSocketAddress::IsMatchingType (m_peer))
+            {
+              ret = m_socket->Bind ();
+            }
+        }
+
+      if (ret == -1)
+        {
+          NS_FATAL_ERROR ("Failed to bind socket");
+        }
+
       m_socket->SetConnectCallback (
           MakeCallback (&RateDualModeApplication::ConnectionSucceeded, this),
           MakeCallback (&RateDualModeApplication::ConnectionFailed, this));
-      m_socket->Bind ();
+      m_socket->SetSendCallback (
+          MakeCallback (&RateDualModeApplication::HandleSendReady, this));
+      m_socket->ShutdownRecv ();
+    }
+
+  if (!m_connected && !m_connectInProgress)
+    {
       m_connectInProgress = true;
       const int ret = m_socket->Connect (m_peer);
       if (ret == -1)
@@ -110,35 +258,75 @@ void RateDualModeApplication::StartApplication (void)
           m_lastErrno = m_socket->GetErrno ();
         }
     }
-
-  double avgBps = m_avgRate.GetBitRate ();
-  double peakBps = m_peakRate.GetBitRate ();
-  double baseBps = (avgBps - (m_burstProb * peakBps)) / (1.0 - m_burstProb);
-
-  if (baseBps < 0) {
-      m_baseRate = DataRate (avgBps); 
-  } else {
-      m_baseRate = DataRate (baseBps);
-  }
-
-  m_currentRate = m_baseRate;
-  // Defer scheduling until the TCP connection is established.
+  else if (m_connected)
+    {
+      m_stateEvent = Simulator::Schedule (m_initialSendDelay,
+                                          &RateDualModeApplication::StartTraffic,
+                                          this);
+    }
 }
 
-void RateDualModeApplication::StopApplication (void)
+void
+RateDualModeApplication::StopApplication (void)
 {
-  if (m_sendEvent.IsRunning ()) Simulator::Cancel (m_sendEvent);
-  if (m_stateEvent.IsRunning ()) Simulator::Cancel (m_stateEvent);
-  if (m_socket) m_socket->Close ();
+  m_running = false;
+  CancelEvents ();
+  m_connected = false;
+  m_connectInProgress = false;
+  if (m_socket)
+    {
+      m_socket->Close ();
+      m_socket = 0;
+    }
+}
+
+void
+RateDualModeApplication::StartTraffic (void)
+{
+  if (!m_running || !m_connected || !m_socket)
+    {
+      return;
+    }
+
+  if (m_trafficModel == TRAFFIC_MODEL_DURATION)
+    {
+      m_inBurstState = false;
+      m_currentRate = m_steadyRate;
+      if (!m_sendEvent.IsRunning ())
+        {
+          ScheduleNextTx ();
+        }
+      ScheduleNextStateChange (SampleStateDuration (m_steadyTime, "SteadyTime"));
+      return;
+    }
+
+  UpdateLegacyState ();
+}
+
+void
+RateDualModeApplication::ScheduleNextStateChange (Time delay)
+{
+  const Time boundedDelay = std::max (NanoSeconds (1), delay);
+  m_stateEvent = Simulator::Schedule (boundedDelay,
+                                      &RateDualModeApplication::AdvanceTrafficState,
+                                      this);
 }
 
 void
 RateDualModeApplication::ConnectionSucceeded (Ptr<Socket> socket)
 {
+  (void) socket;
+  if (!m_running)
+    {
+      return;
+    }
+  m_hasConnected = true;
   m_connected = true;
   m_connectInProgress = false;
   m_lastErrno = Socket::ERROR_NOTERROR;
-  UpdateState ();
+  m_stateEvent = Simulator::Schedule (m_initialSendDelay,
+                                      &RateDualModeApplication::StartTraffic,
+                                      this);
 }
 
 void
@@ -150,45 +338,194 @@ RateDualModeApplication::ConnectionFailed (Ptr<Socket> socket)
   m_connectFailures++;
 }
 
-void RateDualModeApplication::UpdateState (void)
+void
+RateDualModeApplication::HandleSendReady (Ptr<Socket> socket, uint32_t txSpace)
 {
-  bool isBurst = (m_uniformRng->GetValue () < m_burstProb);
-  DataRate newRate = isBurst ? m_peakRate : m_baseRate;
-
-  if (newRate != m_currentRate) 
+  (void) txSpace;
+  if (!m_running || !m_connected || socket != m_socket || !m_unsentPacket)
     {
-      m_currentRate = newRate;
-      if (m_sendEvent.IsRunning ()) Simulator::Cancel (m_sendEvent);
-      ScheduleNextTx ();
+      return;
     }
-  else if (!m_sendEvent.IsRunning ())
-    {
-      ScheduleNextTx ();
-    }
-
-  double nextIntervalSeconds = std::max(0.001, m_stateIntervalRng->GetValue());
-  m_stateEvent = Simulator::Schedule (Seconds (nextIntervalSeconds), &RateDualModeApplication::UpdateState, this);
+  TrySendPacket (true);
 }
 
-void RateDualModeApplication::SendPacket (void)
+void
+RateDualModeApplication::AdvanceTrafficState (void)
 {
-  Ptr<Packet> packet = Create<Packet> (m_packetSize);
-  m_socket->Send (packet);
+  if (!m_running || !m_connected || !m_socket)
+    {
+      return;
+    }
+
+  if (m_trafficModel == TRAFFIC_MODEL_LEGACY_PROBABILITY)
+    {
+      UpdateLegacyState ();
+      return;
+    }
+
+  m_inBurstState = !m_inBurstState;
+  const DataRate newRate = m_inBurstState ? m_burstRate : m_steadyRate;
+  if (newRate != m_currentRate)
+    {
+      m_currentRate = newRate;
+      Simulator::Cancel (m_sendEvent);
+    }
+
+  if (!m_sendEvent.IsRunning ())
+    {
+      ScheduleNextTx ();
+    }
+
+  ScheduleNextStateChange (m_inBurstState
+                               ? SampleStateDuration (m_burstTime, "BurstTime")
+                               : SampleStateDuration (m_steadyTime, "SteadyTime"));
+}
+
+void
+RateDualModeApplication::UpdateLegacyState (void)
+{
+  if (!m_running || !m_connected || !m_socket)
+    {
+      return;
+    }
+
+  const bool isBurst = (m_uniformRng->GetValue () < m_burstProb);
+  const DataRate newRate = isBurst ? m_burstRate : m_steadyRate;
+
+  if (newRate != m_currentRate)
+    {
+      m_currentRate = newRate;
+      Simulator::Cancel (m_sendEvent);
+    }
+
+  if (!m_sendEvent.IsRunning ())
+    {
+      ScheduleNextTx ();
+    }
+
+  const double nextIntervalSeconds = std::max (0.001, m_stateIntervalRng->GetValue ());
+  ScheduleNextStateChange (Seconds (nextIntervalSeconds));
+}
+
+void
+RateDualModeApplication::SendPacket (void)
+{
+  NS_ASSERT (m_sendEvent.IsExpired ());
+
+  if (!m_running || !m_connected || !m_socket)
+    {
+      return;
+    }
+
+  TrySendPacket (false);
   ScheduleNextTx ();
 }
 
-void RateDualModeApplication::ScheduleNextTx (void)
+void
+RateDualModeApplication::ScheduleNextTx (void)
 {
-  if (m_currentRate.GetBitRate () == 0) return;
-  Time nextTime = Seconds (m_packetSize * 8.0 / m_currentRate.GetBitRate ());
+  if (!m_running || !m_connected || m_currentRate.GetBitRate () == 0)
+    {
+      return;
+    }
+
+  const Time nextTime = Seconds (m_packetSize * 8.0 / m_currentRate.GetBitRate ());
   m_sendEvent = Simulator::Schedule (nextTime, &RateDualModeApplication::SendPacket, this);
 }
 
-int64_t RateDualModeApplication::AssignStreams (int64_t stream)
+void
+RateDualModeApplication::TrySendPacket (bool resendOnly)
 {
-  m_uniformRng->SetStream (stream);
-  m_stateIntervalRng->SetStream (stream + 1);
-  return 2;
+  if (!m_running || !m_connected || !m_socket)
+    {
+      return;
+    }
+
+  Ptr<Packet> packet = m_unsentPacket;
+  if (!packet)
+    {
+      if (resendOnly)
+        {
+          return;
+        }
+      packet = Create<Packet> (m_packetSize);
+    }
+
+  const uint32_t size = packet->GetSize ();
+  const int actual = m_socket->Send (packet);
+  if (actual == static_cast<int> (size))
+    {
+      m_lastErrno = Socket::ERROR_NOTERROR;
+      m_unsentPacket = 0;
+      RecordSuccessfulSend (packet);
+      return;
+    }
+
+  if (actual == -1)
+    {
+      m_lastErrno = m_socket->GetErrno ();
+      m_unsentPacket = packet;
+      return;
+    }
+
+  if (actual > 0 && static_cast<uint32_t> (actual) < size)
+    {
+      m_lastErrno = Socket::ERROR_NOTERROR;
+      Ptr<Packet> sent = packet->CreateFragment (0, actual);
+      Ptr<Packet> unsent = packet->CreateFragment (actual, size - static_cast<uint32_t> (actual));
+      m_unsentPacket = unsent;
+      RecordSuccessfulSend (sent);
+      return;
+    }
+
+  NS_FATAL_ERROR ("Unexpected return value from m_socket->Send ()");
+}
+
+void
+RateDualModeApplication::RecordSuccessfulSend (Ptr<const Packet> packet)
+{
+  if (!m_hasSentPayload)
+    {
+      m_hasSentPayload = true;
+      m_firstPayloadTxTime = Simulator::Now ();
+    }
+
+  m_txTrace (packet);
+
+  Address localAddress;
+  Address peerAddress;
+  if (m_socket->GetSockName (localAddress) == 0 &&
+      m_socket->GetPeerName (peerAddress) == 0)
+    {
+      m_txTraceWithAddresses (packet, localAddress, peerAddress);
+    }
+}
+
+int64_t
+RateDualModeApplication::AssignStreams (int64_t stream)
+{
+  int64_t currentStream = stream;
+  if (m_uniformRng)
+    {
+      m_uniformRng->SetStream (currentStream);
+      ++currentStream;
+    }
+  if (m_steadyTime)
+    {
+      m_steadyTime->SetStream (currentStream);
+      ++currentStream;
+    }
+  if (m_burstTime)
+    {
+      m_burstTime->SetStream (currentStream);
+      ++currentStream;
+    }
+  if (m_stateIntervalRng)
+    {
+      m_stateIntervalRng->SetStream (currentStream);
+      ++currentStream;
+    }
+  return (currentStream - stream);
 }
 
 } // namespace ns3

@@ -253,6 +253,16 @@ int (*DceManager::PrepareDoStartProcess (Thread * current)) (int, char **, char 
   int errNo = 0;
   std::string exeFullPath = SearchExecFile (current->process->originalArgv[0], vpath, getuid (), getgid (), &errNo);
 
+  if (getenv ("DCE_EXEC_TRACE"))
+    {
+      std::cout << "[dce-exec-trace] node=" << current->process->nodeId
+                << " pid=" << current->process->pid
+                << " argv0=" << current->process->originalArgv[0]
+                << " path=" << vpath
+                << " resolved=" << exeFullPath
+                << std::endl;
+    }
+
   if (exeFullPath.length () <= 0)
     {
       std::string line = "Executable '";

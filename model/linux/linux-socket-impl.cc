@@ -327,7 +327,9 @@ LinuxSocketImpl::Listen (void)
 {
   NS_LOG_FUNCTION (this);
   uint16_t pid = EnterFakeTask ();
-  int ret = this->m_kernsock->Listen (5);
+  // PacketSink and other ns-3 apps call Listen() without exposing backlog.
+  // A backlog of 5 is too small for large DCE/MPTCP fan-in scenarios.
+  int ret = this->m_kernsock->Listen (4096);
   NS_LOG_DEBUG ("listen returns " << ret << " errno " << Current ()->err);
   if (ret == 0)
     {

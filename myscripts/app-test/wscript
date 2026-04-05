@@ -6,6 +6,7 @@ def configure(conf):
     pass
 
 def build(bld):
+    flow_monitor_lib = 'ns3.35-flow-monitor-' + bld.env['LIB_SUFFIX']
     # 用 DCE 的封装来构建脚本
     bld.build_a_script(
         'dce',                                  # backend：用 dce
@@ -22,5 +23,5 @@ def build(bld):
         ],
         target = 'bin/app-test1',           # 生成的可执行文件名
         source = ['app-test1.cc', 'rate-dual-helper.cc', 'rate-dual-application.cc'],          # 源文件
-        lib=['ns3.35-flow-monitor-debug']
+        lib=[flow_monitor_lib]
     )

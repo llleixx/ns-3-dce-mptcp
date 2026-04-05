@@ -8,12 +8,14 @@ def configure(conf):
 
 
 def build(bld):
+    nr_lib = 'ns3.35-nr-' + bld.env['LIB_SUFFIX']
     bld.build_a_script(
         'dce',
         needed=[
             'core',
             'network',
             'internet',
+            'internet-apps',
             'point-to-point',
             'mobility',
             'applications',
@@ -27,5 +29,5 @@ def build(bld):
             '../app-test/rate-dual-helper.cc',
             '../app-test/rate-dual-application.cc'
         ],
-        lib=['ns3.35-nr-debug']
+        lib=[nr_lib]
     )

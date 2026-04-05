@@ -32,6 +32,7 @@ private:
   void SetTask (std::string path, std::string value);
 
   std::list<std::pair<std::string,std::string> > m_earlySysfs;
+  bool m_stackInitialized {false};
 };
 
 } // namespace ns3

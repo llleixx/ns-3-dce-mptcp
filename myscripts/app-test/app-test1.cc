@@ -121,8 +121,8 @@ int main (int argc, char *argv[])
   RateDualHelper llrfTraffic ("ns3::LinuxTcpSocketFactory", destAddress);
 
   // 设置属性（完全匹配 LLRF 的调研文档数据）
-  llrfTraffic.SetAttribute ("AvgRate", DataRateValue (DataRate ("50.9Kbps")));
-  llrfTraffic.SetAttribute ("PeakRate", DataRateValue (DataRate ("92.79Mbps")));
+  llrfTraffic.SetAttribute ("SteadyRate", DataRateValue (DataRate ("50.9Kbps")));
+  llrfTraffic.SetAttribute ("BurstRate", DataRateValue (DataRate ("92.79Mbps")));
   llrfTraffic.SetAttribute ("BurstProb", DoubleValue (0.005));
   llrfTraffic.SetAttribute ("PacketSize", UintegerValue (1460)); // Ethernet MTU payload
 

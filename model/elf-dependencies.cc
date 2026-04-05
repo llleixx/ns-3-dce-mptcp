@@ -234,7 +234,7 @@ ElfDependencies::GetSearchDirectories (void) const
                           tmp.end ());
     }
   char *path = getenv ("PATH");
-  if (path != 0)
+  if (path != 0 && getenv ("DCE_ELF_IGNORE_PATH") == 0)
     {
       std::list<std::string> tmp = Split (path, ":");
       directories.insert (directories.end (),
@@ -263,6 +263,12 @@ ElfDependencies::SearchFile (std::string filename, std::string *fullname) const
   if (Exists (filename))
     {
       *fullname = filename;
+      if (getenv ("DCE_ELF_TRACE"))
+        {
+          std::cout << "[dce-elf-trace] file=" << filename
+                    << " found=" << *fullname
+                    << std::endl;
+        }
       NS_LOG_DEBUG ("Found: " << filename << " as " << *fullname);
       return true;
     }
@@ -272,9 +278,21 @@ ElfDependencies::SearchFile (std::string filename, std::string *fullname) const
       if (Exists (*i + "/" + filename))
         {
           *fullname = *i + "/" + filename;
+          if (getenv ("DCE_ELF_TRACE"))
+            {
+              std::cout << "[dce-elf-trace] file=" << filename
+                        << " found=" << *fullname
+                        << std::endl;
+            }
           NS_LOG_DEBUG ("Found: " << filename << " as " << *fullname);
           return true;
         }
+    }
+  if (getenv ("DCE_ELF_TRACE"))
+    {
+      std::cout << "[dce-elf-trace] file=" << filename
+                << " found="
+                << std::endl;
     }
   return false;
 }

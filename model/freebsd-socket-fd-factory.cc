@@ -8,6 +8,7 @@
 #include "ns3/string.h"
 #include "ns3/simulator.h"
 #include "ns3/node.h"
+#include <cstddef>
 
 NS_LOG_COMPONENT_DEFINE ("DceFreeBSDSocketFdFactory");
 
@@ -66,21 +67,27 @@ FreeBSDSocketFdFactory::GetSysFileList (void)
   struct MyIterator
   {
     struct SimSysIterator head;
+    static MyIterator *ToSelf (const struct SimSysIterator *iter)
+    {
+      const char *base = reinterpret_cast<const char *> (iter);
+      return reinterpret_cast<MyIterator *> (
+          const_cast<char *> (base - offsetof (MyIterator, head)));
+    }
     static void ReportStartDir (const struct SimSysIterator *iter, const char *dirname)
     {
-      struct MyIterator *self = (struct MyIterator *)iter;
+      MyIterator *self = ToSelf (iter);
       self->m_stack.push_back (self->m_currentPath);
       self->m_currentPath += "." + std::string (dirname);
     }
     static void ReportEndDir (const struct SimSysIterator *iter)
     {
-      struct MyIterator *self = (struct MyIterator *)iter;
+      MyIterator *self = ToSelf (iter);
       self->m_currentPath = self->m_stack.back ();
       self->m_stack.pop_back ();
     }
     static void ReportFile (const struct SimSysIterator *iter, const char *filename, int flags, struct SimSysFile *file)
     {
-      struct MyIterator *self = (struct MyIterator *)iter;
+      MyIterator *self = ToSelf (iter);
       std::string path = self->m_currentPath + "." + filename;
       self->m_list.push_back (std::make_pair (path, file));
     }

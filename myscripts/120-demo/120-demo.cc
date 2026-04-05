@@ -9,6 +9,11 @@
 #include "ns3/applications-module.h"
 #include "ns3/wifi-module.h"
 #include "ns3/wifi-standards.h"
+#include "ns3/spectrum-module.h"
+#include "ns3/ethernet-header.h"
+#include "ns3/ethernet-trailer.h"
+#include "ns3/llc-snap-header.h"
+#include "ns3/tcp-header.h"
 
 // NR / EPC
 #include "ns3/nr-module.h"
@@ -16,6 +21,7 @@
 #include "ns3/nr-point-to-point-epc-helper.h"
 #include "ns3/antenna-module.h"
 #include "ns3/nr-mac-scheduler-ofdma-rr.h"
+#include "ns3/nr-amc.h"
 #include "ns3/lte-ue-rrc.h"
 
 // DCE
@@ -24,9 +30,11 @@
 #include <algorithm>
 #include <cstdint>
 #include <iomanip>
+#include <limits>
 #include <map>
 #include <sstream>
 #include <string>
+#include <vector>
 
 #include "../../model/linux/ipv4-linux.h"
 #include "../app-test/rate-dual-helper.h"
@@ -76,6 +84,12 @@ void
 RunIpAt (Ptr<Node> node, double whenSeconds, const std::string &command)
 {
   LinuxStackHelper::RunIp (node, Seconds (whenSeconds), command);
+}
+
+void
+PrintLinuxSysctl (std::string key, std::string value)
+{
+  std::cout << "[120-demo] sysctl " << key << "=" << value << std::endl;
 }
 
 void
@@ -132,7 +146,8 @@ void
 ConfigureMptcp (LinuxStackHelper &stack,
                 NodeContainer nodes,
                 bool enableMptcp,
-                bool enableMptcpDebug)
+                bool enableMptcpDebug,
+                const std::string &mptcpScheduler)
 {
   if (!enableMptcp)
     {
@@ -141,6 +156,7 @@ ConfigureMptcp (LinuxStackHelper &stack,
 
   stack.SysctlSet (nodes, ".net.mptcp.mptcp_enabled", "1");
   stack.SysctlSet (nodes, ".net.mptcp.mptcp_path_manager", "fullmesh");
+  stack.SysctlSet (nodes, ".net.mptcp.mptcp_scheduler", mptcpScheduler);
   stack.SysctlSet (nodes, ".net.ipv4.tcp_congestion_control", "olia");
   if (enableMptcpDebug)
     {
@@ -155,6 +171,113 @@ struct WifiClientConfig
   std::string subnetCidr;
 };
 
+class PacketSinkRxTracker
+{
+public:
+  void
+  Rx (Ptr<const Packet> packet, const Address &from, const Address &to)
+  {
+    (void) to;
+
+    if (!InetSocketAddress::IsMatchingType (from))
+      {
+        return;
+      }
+
+    const Ipv4Address src = InetSocketAddress::ConvertFrom (from).GetIpv4 ();
+    m_bytesBySrc[src] += packet->GetSize ();
+    m_packetsBySrc[src] += 1;
+  }
+
+  uint64_t
+  GetBytes (Ipv4Address src) const
+  {
+    const auto it = m_bytesBySrc.find (src);
+    return (it == m_bytesBySrc.end ()) ? 0 : it->second;
+  }
+
+  uint64_t
+  GetPackets (Ipv4Address src) const
+  {
+    const auto it = m_packetsBySrc.find (src);
+    return (it == m_packetsBySrc.end ()) ? 0 : it->second;
+  }
+
+private:
+  std::map<Ipv4Address, uint64_t> m_bytesBySrc;
+  std::map<Ipv4Address, uint64_t> m_packetsBySrc;
+};
+
+class BackboneTcpPayloadTracker
+{
+public:
+  void
+  Rx (Ptr<const Packet> packet)
+  {
+    Ptr<Packet> copy = packet->Copy ();
+
+    EthernetTrailer trailer;
+    copy->RemoveTrailer (trailer);
+
+    EthernetHeader ethernet (false);
+    copy->RemoveHeader (ethernet);
+
+    uint16_t protocol = ethernet.GetLengthType ();
+    if (protocol <= 1500)
+      {
+        if (copy->GetSize () < protocol)
+          {
+            return;
+          }
+        const uint32_t padlen = copy->GetSize () - protocol;
+        if (padlen > 0)
+          {
+            copy->RemoveAtEnd (padlen);
+          }
+
+        LlcSnapHeader llc;
+        copy->RemoveHeader (llc);
+        protocol = llc.GetType ();
+      }
+
+    static const uint16_t kIpv4Protocol = 0x0800;
+    if (protocol != kIpv4Protocol)
+      {
+        return;
+      }
+
+    Ipv4Header ipv4;
+    copy->RemoveHeader (ipv4);
+    if (ipv4.GetProtocol () != 6)
+      {
+        return;
+      }
+
+    TcpHeader tcp;
+    copy->RemoveHeader (tcp);
+    const uint32_t payloadBytes = copy->GetSize ();
+    if (payloadBytes == 0)
+      {
+        return;
+      }
+
+    const Ipv4Address src = ipv4.GetSource ();
+    m_payloadBytesBySrc[src] += payloadBytes;
+    m_packetsBySrc[src] += 1;
+  }
+
+  uint64_t
+  GetPayloadBytes (Ipv4Address src) const
+  {
+    const auto it = m_payloadBytesBySrc.find (src);
+    return (it == m_payloadBytesBySrc.end ()) ? 0 : it->second;
+  }
+
+private:
+  std::map<Ipv4Address, uint64_t> m_payloadBytesBySrc;
+  std::map<Ipv4Address, uint64_t> m_packetsBySrc;
+};
+
 } // namespace
 
 int
@@ -164,13 +287,54 @@ main (int argc, char *argv[])
   double simTime = 20.0;
   double sinkStart = 1.0;
   double clientStart = 2.0;
-  double clientStartJitter = 0.002;
+  double clientStartJitter = 0.3;
   int64_t clientStartJitterStream = 1;
   uint16_t port = 5000;
+  uint32_t numAps = 4;
+  std::string appSteadyRate = "50.9Kbps";
+  std::string appBurstRate = "92.79Mbps";
+  std::string appTrafficModel = "duration";
+  double appBurstProb = 0.0005;
+  double appInitialSendDelay = 0.2;
+  std::string appStateInterval =
+      "ns3::NormalRandomVariable[Mean=1.0|Variance=0.01|Bound=2.0]";
+  std::string appSteadyTime =
+      "ns3::ConstantRandomVariable[Constant=1.0]";
+  std::string appBurstTime =
+      "ns3::ConstantRandomVariable[Constant=0.0001]";
+  int64_t appStreamBase = 100;
+  uint32_t wifiAssocStaggerMs = 20;
+  uint16_t wifiChannelWidthMhz = 160;
+  uint16_t wifiFrequencyMhz = 5250;
+  uint16_t wifiHeGuardIntervalNs = 800;
+  uint16_t wifiHeMpduBufferSize = 256;
+  uint32_t wifiBeMaxAmpduSize = 6500631;
+  double wifiTxPowerDbm = 23.0;
+  bool wifiEnableOfdma = true;
+  bool wifiEnableUlOfdma = true;
+  bool wifiEnableBsrp = true;
+  std::string mptcpScheduler = "default";
   bool enableMptcp = true;
   bool enableMptcpDebug = false;
   bool disableIpv6 = true;
   bool debugRoutes = false;
+  bool verifyDualLinks = false;
+  bool checkBackboneDualTraffic = false;
+  bool dumpSockets = false;
+  uint32_t dumpSocketCount = 3;
+  bool dumpMptcpConfig = false;
+  double nrFrequency = 4.9e9;
+  double nrBandwidth = 100e6;
+  uint16_t nrNumerology = 1;
+  std::string nrTddPattern = "DL|F|UL|UL|UL|";
+  bool nrUseEesmT2 = true;
+  bool nrFixedMcsUl = true;
+  bool nrFixedMcsDl = false;
+  uint16_t nrStartingMcsUl = 25;
+  uint16_t nrStartingMcsDl = 25;
+  std::string nrAmcModel = "ErrorModel";
+  double nrGnbTxPower = 40.0;
+  double nrUeTxPower = 23.0;
 
   CommandLine cmd;
   cmd.AddValue ("numClients", "Number of client UEs (default 120)", numClients);
@@ -184,16 +348,162 @@ main (int argc, char *argv[])
                 "RNG stream index for clientStartJitter (for reproducibility)",
                 clientStartJitterStream);
   cmd.AddValue ("port", "TCP port", port);
+  cmd.AddValue ("numAps", "Number of WiFi APs", numAps);
+  cmd.AddValue ("appSteadyRate", "RateDual steady-state rate", appSteadyRate);
+  cmd.AddValue ("appBurstRate", "RateDual burst-state rate", appBurstRate);
+  cmd.AddValue ("appTrafficModel",
+                "RateDual traffic model: duration or legacy-probability",
+                appTrafficModel);
+  cmd.AddValue ("appBurstProb",
+                "RateDual burst probability when appTrafficModel=legacy-probability",
+                appBurstProb);
+  cmd.AddValue ("appInitialSendDelay",
+                "Delay application payload after connect succeeds (s)",
+                appInitialSendDelay);
+  cmd.AddValue ("appStateInterval",
+                "RateDual StateInterval random variable expression when appTrafficModel=legacy-probability",
+                appStateInterval);
+  cmd.AddValue ("appSteadyTime",
+                "RateDual steady-state time random variable expression when appTrafficModel=duration",
+                appSteadyTime);
+  cmd.AddValue ("appBurstTime",
+                "RateDual burst-state time random variable expression when appTrafficModel=duration",
+                appBurstTime);
+  cmd.AddValue ("appStreamBase",
+                "First RNG stream index for RateDual application internals",
+                appStreamBase);
+  cmd.AddValue ("wifiAssocStaggerMs",
+                "Additional WaitBeaconTimeout per STA to stagger WiFi association (ms)",
+                wifiAssocStaggerMs);
+  cmd.AddValue ("wifiChannelWidthMhz", "WiFi channel width in MHz", wifiChannelWidthMhz);
+  cmd.AddValue ("wifiFrequencyMhz", "WiFi center frequency in MHz", wifiFrequencyMhz);
+  cmd.AddValue ("wifiHeGuardIntervalNs",
+                "WiFi HE guard interval in ns (800/1600/3200)",
+                wifiHeGuardIntervalNs);
+  cmd.AddValue ("wifiHeMpduBufferSize",
+                "WiFi HE MPDU buffer size (64-256)",
+                wifiHeMpduBufferSize);
+  cmd.AddValue ("wifiBeMaxAmpduSize",
+                "WiFi AC_BE max A-MPDU size in bytes",
+                wifiBeMaxAmpduSize);
+  cmd.AddValue ("wifiTxPowerDbm", "WiFi AP/STA TX power in dBm", wifiTxPowerDbm);
+  cmd.AddValue ("wifiEnableOfdma",
+                "Enable AP-side WiFi multi-user scheduler (DL OFDMA path)",
+                wifiEnableOfdma);
+  cmd.AddValue ("wifiEnableUlOfdma",
+                "Enable WiFi UL OFDMA in the AP scheduler",
+                wifiEnableUlOfdma);
+  cmd.AddValue ("wifiEnableBsrp",
+                "Enable WiFi BSRP for UL OFDMA scheduling",
+                wifiEnableBsrp);
+  cmd.AddValue ("mptcpScheduler", "MPTCP scheduler (e.g. default, roundrobin, redundant)", mptcpScheduler);
   cmd.AddValue ("enableMptcp", "Enable MPTCP fullmesh on client/server", enableMptcp);
   cmd.AddValue ("enableMptcpDebug", "Enable MPTCP debug sysctl (very verbose)", enableMptcpDebug);
   cmd.AddValue ("disableIpv6", "Disable IPv6 via sysctl (reduces multicast control traffic)", disableIpv6);
   cmd.AddValue ("debugRoutes", "Dump route info for a few nodes", debugRoutes);
+  cmd.AddValue ("verifyDualLinks",
+                "Enable per-UE dual-link verification helpers and summaries",
+                verifyDualLinks);
+  cmd.AddValue ("checkBackboneDualTraffic",
+                "Count TCP payload on server backbone by source IP to verify per-UE NR/WiFi traffic",
+                checkBackboneDualTraffic);
+  cmd.AddValue ("dumpSockets",
+                "Run `ss -tin` in DCE near the end of the simulation",
+                dumpSockets);
+  cmd.AddValue ("dumpSocketCount",
+                "Number of UEs to run `ss -tin` on when dumpSockets=1",
+                dumpSocketCount);
+  cmd.AddValue ("dumpMptcpConfig",
+                "Print selected MPTCP scheduler/path manager via sysctl",
+                dumpMptcpConfig);
+  cmd.AddValue ("nrFrequency", "NR carrier frequency in Hz", nrFrequency);
+  cmd.AddValue ("nrBandwidth", "NR carrier bandwidth in Hz", nrBandwidth);
+  cmd.AddValue ("nrNumerology", "NR numerology", nrNumerology);
+  cmd.AddValue ("nrTddPattern", "NR TDD pattern, e.g. DL|F|UL|UL|UL|", nrTddPattern);
+  cmd.AddValue ("nrUseEesmT2",
+                "Use NrEesmCcT2 (Table2, up to 256QAM) instead of the default LTE-MI error model",
+                nrUseEesmT2);
+  cmd.AddValue ("nrFixedMcsUl", "Fix UL MCS to nrStartingMcsUl", nrFixedMcsUl);
+  cmd.AddValue ("nrFixedMcsDl", "Fix DL MCS to nrStartingMcsDl", nrFixedMcsDl);
+  cmd.AddValue ("nrStartingMcsUl", "Starting (and fixed) UL MCS index", nrStartingMcsUl);
+  cmd.AddValue ("nrStartingMcsDl", "Starting (and fixed) DL MCS index", nrStartingMcsDl);
+  cmd.AddValue ("nrAmcModel", "NR AMC model: ErrorModel or ShannonModel", nrAmcModel);
+  cmd.AddValue ("nrGnbTxPower", "gNB TX power in dBm", nrGnbTxPower);
+  cmd.AddValue ("nrUeTxPower", "UE TX power in dBm", nrUeTxPower);
   cmd.Parse (argc, argv);
 
+  NS_ABORT_MSG_IF (numAps == 0, "numAps must be greater than zero");
+  NS_ABORT_MSG_IF (wifiEnableUlOfdma && !wifiEnableOfdma,
+                   "wifiEnableUlOfdma requires wifiEnableOfdma");
+  NS_ABORT_MSG_IF (wifiEnableBsrp && !wifiEnableOfdma,
+                   "wifiEnableBsrp requires wifiEnableOfdma");
   NS_ABORT_MSG_IF ((numClients % 3) != 0,
                    "numClients must be a multiple of 3 for the 3-column layout");
 
+  const uint16_t nrMaxMcsIndex = nrUseEesmT2 ? 27 : 28;
+  if (nrStartingMcsUl > nrMaxMcsIndex)
+    {
+      NS_LOG_UNCOND ("[120-demo] WARNING: nrStartingMcsUl(" << nrStartingMcsUl
+                                                            << ") > maxMcs(" << nrMaxMcsIndex
+                                                            << "); clamp");
+      nrStartingMcsUl = nrMaxMcsIndex;
+    }
+  if (nrStartingMcsDl > nrMaxMcsIndex)
+    {
+      NS_LOG_UNCOND ("[120-demo] WARNING: nrStartingMcsDl(" << nrStartingMcsDl
+                                                            << ") > maxMcs(" << nrMaxMcsIndex
+                                                            << "); clamp");
+      nrStartingMcsDl = nrMaxMcsIndex;
+    }
+
+  NrAmc::AmcModel nrAmcModelEnum = NrAmc::ErrorModel;
+  if (nrAmcModel == "ErrorModel")
+    {
+      nrAmcModelEnum = NrAmc::ErrorModel;
+    }
+  else if (nrAmcModel == "ShannonModel")
+    {
+      nrAmcModelEnum = NrAmc::ShannonModel;
+    }
+  else
+    {
+      NS_ABORT_MSG ("Unsupported nrAmcModel=\"" << nrAmcModel
+                                                << "\"; use ErrorModel or ShannonModel");
+    }
+
+  NS_LOG_UNCOND ("[120-demo] NR defaults: freq=" << nrFrequency / 1e9
+                                                 << "GHz bw=" << nrBandwidth / 1e6
+                                                 << "MHz numerology=" << nrNumerology
+                                                 << " pattern=\"" << nrTddPattern << "\""
+                                                 << " errorModel="
+                                                 << (nrUseEesmT2
+                                                         ? "NrEesmCcT2(Table2,256QAM)"
+                                                         : "NrLteMiErrorModel(64QAM)")
+                                                 << " amcModel=" << nrAmcModel
+                                                 << " fixedMcsUl=" << nrFixedMcsUl
+                                                 << " startingMcsUl=" << nrStartingMcsUl
+                                                 << " fixedMcsDl=" << nrFixedMcsDl
+                                                 << " startingMcsDl=" << nrStartingMcsDl
+                                                 << " ueTxPower=" << nrUeTxPower
+                                                 << "dBm gnbTxPower=" << nrGnbTxPower
+                                                 << "dBm ueAnt=1x2 gnbAnt=2x2");
+  NS_LOG_UNCOND ("[120-demo] WiFi defaults: phy=Spectrum 802.11ax_5GHz"
+                 << " width=" << wifiChannelWidthMhz
+                 << "MHz freq=" << wifiFrequencyMhz
+                 << "MHz heGi=" << wifiHeGuardIntervalNs
+                 << "ns heMpduBuffer=" << wifiHeMpduBufferSize
+                 << " beMaxAmpdu=" << wifiBeMaxAmpduSize
+                 << " txPower=" << wifiTxPowerDbm
+                 << "dBm apAnt=4x4 staAnt=2x2 dlOfdma="
+                 << (wifiEnableOfdma ? "on" : "off")
+                 << " ulOfdma="
+                 << ((wifiEnableOfdma && wifiEnableUlOfdma) ? "on" : "off")
+                 << " bsrp="
+                 << ((wifiEnableOfdma && wifiEnableBsrp) ? "on" : "off"));
+
   GlobalValue::Bind ("ChecksumEnabled", BooleanValue (true));
+  Config::SetDefault ("ns3::WifiRemoteStationManager::RtsCtsThreshold",
+                      UintegerValue (4294967295u));
   Config::SetDefault ("ns3::LteRlcUm::MaxTxBufferSize", UintegerValue (999999999));
   Config::SetDefault ("ns3::LteRlcAm::MaxTxBufferSize", UintegerValue (999999999));
   // Support many UEs (default 40 is too small for 120 UEs).
@@ -209,7 +519,7 @@ main (int argc, char *argv[])
   gnbNode.Create (1);
 
   NodeContainer apNodes;
-  apNodes.Create (2);
+  apNodes.Create (numAps);
 
   NodeContainer serverNode;
   serverNode.Create (1);
@@ -248,10 +558,14 @@ main (int argc, char *argv[])
         }
     }
 
-  // Place gNB/APs at 5m above the plane (choose near the grid center).
+  // Place the gNB at the grid center and spread APs along the long side.
   SetPosition (gnbNode.Get (0), Vector (centerX, centerY, infraZ));
-  SetPosition (apNodes.Get (0), Vector (0.0, centerY, infraZ));
-  SetPosition (apNodes.Get (1), Vector (gridWidth, centerY, infraZ));
+  for (uint32_t apIndex = 0; apIndex < numAps; ++apIndex)
+    {
+      const double apY = ((static_cast<double> (apIndex) + 0.5) * gridHeight) /
+                         static_cast<double> (numAps);
+      SetPosition (apNodes.Get (apIndex), Vector (centerX, apY, infraZ));
+    }
   SetPosition (server, Vector (centerX, centerY + 30.0, 0.0));
 
   // ---------------- DCE / Linux stack ----------------
@@ -296,78 +610,138 @@ main (int argc, char *argv[])
   ConfigureMptcp (stack,
                   NodeContainer (ueNodes, serverNode),
                   enableMptcp,
-                  enableMptcpDebug);
+                  enableMptcpDebug,
+                  mptcpScheduler);
+  if (enableMptcp && dumpMptcpConfig && ueNodes.GetN () > 0)
+    {
+      LinuxStackHelper::SysctlGet (ueNodes.Get (0),
+                                   Seconds (0.2),
+                                   ".net.mptcp.mptcp_scheduler",
+                                   &PrintLinuxSysctl);
+      LinuxStackHelper::SysctlGet (ueNodes.Get (0),
+                                   Seconds (0.2),
+                                   ".net.mptcp.mptcp_path_manager",
+                                   &PrintLinuxSysctl);
+    }
 
-  // ---------------- WiFi networks (2 APs) ----------------
-  // Split clients into two groups (60/60) to associate with AP1/AP2.
-  // Column 0 -> AP1 (40), column 2 -> AP2 (40), column 1 split 20/20 by row.
-  NodeContainer wifiSta1;
-  NodeContainer wifiSta2;
+  // ---------------- WiFi networks ----------------
+  // Split the 3xN client grid into row bands so each AP serves one band.
+  std::vector<NodeContainer> wifiStaGroups (numAps);
   for (uint32_t n = 0; n < ueNodes.GetN (); ++n)
     {
-      const uint32_t col = n % columns;
       const uint32_t row = n / columns;
-      if (col == 0)
-        {
-          wifiSta1.Add (ueNodes.Get (n));
-        }
-      else if (col == 2)
-        {
-          wifiSta2.Add (ueNodes.Get (n));
-        }
-      else
-        {
-          if (row < rowsPerColumn / 2)
-            {
-              wifiSta1.Add (ueNodes.Get (n));
-            }
-          else
-            {
-              wifiSta2.Add (ueNodes.Get (n));
-            }
-        }
+      const uint32_t apIndex =
+          std::min ((row * numAps) / rowsPerColumn, numAps - 1);
+      wifiStaGroups[apIndex].Add (ueNodes.Get (n));
     }
-  NS_LOG_UNCOND ("[120-demo] WiFi STA split: ap1=" << wifiSta1.GetN ()
-                                                   << " ap2=" << wifiSta2.GetN ());
+  std::ostringstream wifiSplit;
+  wifiSplit << "[120-demo] WiFi STA split:";
+  for (uint32_t apIndex = 0; apIndex < numAps; ++apIndex)
+    {
+      wifiSplit << " ap" << (apIndex + 1) << "=" << wifiStaGroups[apIndex].GetN ();
+    }
+  NS_LOG_UNCOND (wifiSplit.str ());
 
   WifiHelper wifi;
   wifi.SetStandard (WIFI_STANDARD_80211ax_5GHZ);
   wifi.SetRemoteStationManager ("ns3::IdealWifiManager");
 
-  auto installWifi = [&wifi] (Ptr<Node> ap,
-                              NodeContainer stas,
-                              const std::string &ssidName,
-                              const std::string &subnetBase,
-                              Ipv4InterfaceContainer &apIf,
-                              Ipv4InterfaceContainer &staIf) {
+  auto installWifi = [&wifi,
+                      wifiAssocStaggerMs,
+                      wifiChannelWidthMhz,
+                      wifiFrequencyMhz,
+                      wifiHeGuardIntervalNs,
+                      wifiHeMpduBufferSize,
+                      wifiBeMaxAmpduSize,
+                      wifiTxPowerDbm,
+                      wifiEnableOfdma,
+                      wifiEnableUlOfdma,
+                      wifiEnableBsrp] (Ptr<Node> ap,
+                                       NodeContainer stas,
+                                       const std::string &ssidName,
+                                       const std::string &subnetBase,
+                                       Ipv4InterfaceContainer &apIf,
+                                       Ipv4InterfaceContainer &staIf) {
     WifiMacHelper mac;
     Ssid ssid (ssidName);
 
-    YansWifiChannelHelper channel = YansWifiChannelHelper::Default ();
-    YansWifiPhyHelper phy;
-    phy.SetChannel (channel.Create ());
+    Ptr<MultiModelSpectrumChannel> spectrumChannel =
+        CreateObject<MultiModelSpectrumChannel> ();
+    SpectrumWifiPhyHelper phy;
+    phy.SetChannel (spectrumChannel);
 
-    // Keep the same WiFi-6 config used by myscripts/dce-wifi/dce-wifi.cc.
-    phy.Set ("ChannelWidth", UintegerValue (160));
-    phy.Set ("Frequency", UintegerValue (5250));
-    phy.Set ("TxPowerStart", DoubleValue (23.0));
-    phy.Set ("TxPowerEnd", DoubleValue (23.0));
+    // Align the default WiFi-6 capability with myscripts/dce-wifi-ofdma.
+    phy.Set ("ChannelWidth", UintegerValue (wifiChannelWidthMhz));
+    phy.Set ("Frequency", UintegerValue (wifiFrequencyMhz));
+    phy.Set ("TxPowerStart", DoubleValue (wifiTxPowerDbm));
+    phy.Set ("TxPowerEnd", DoubleValue (wifiTxPowerDbm));
 
     // AP: 4x4 MIMO
     phy.Set ("Antennas", UintegerValue (4));
     phy.Set ("MaxSupportedTxSpatialStreams", UintegerValue (4));
     phy.Set ("MaxSupportedRxSpatialStreams", UintegerValue (4));
-    mac.SetType ("ns3::ApWifiMac", "Ssid", SsidValue (ssid));
+    if (wifiEnableOfdma)
+      {
+        const uint8_t muSchedulerStations =
+            static_cast<uint8_t> (std::max<uint32_t> (
+                1u, std::min<uint32_t> (stas.GetN (), 74)));
+        mac.SetMultiUserScheduler ("ns3::RrMultiUserScheduler",
+                                   "NStations",
+                                   UintegerValue (muSchedulerStations),
+                                   "EnableUlOfdma",
+                                   BooleanValue (wifiEnableUlOfdma),
+                                   "EnableBsrp",
+                                   BooleanValue (wifiEnableBsrp));
+      }
+    mac.SetType ("ns3::ApWifiMac",
+                 "EnableBeaconJitter",
+                 BooleanValue (false),
+                 "Ssid",
+                 SsidValue (ssid));
     NetDeviceContainer apDev = wifi.Install (phy, mac, ap);
 
     // STA: 2x2 MIMO
     phy.Set ("Antennas", UintegerValue (2));
     phy.Set ("MaxSupportedTxSpatialStreams", UintegerValue (2));
     phy.Set ("MaxSupportedRxSpatialStreams", UintegerValue (2));
-    mac.SetType ("ns3::StaWifiMac",
-                 "Ssid", SsidValue (ssid),
-                 "ActiveProbing", BooleanValue (false));
-    NetDeviceContainer staDev = wifi.Install (phy, mac, stas);
+    NetDeviceContainer staDev;
+    for (uint32_t i = 0; i < stas.GetN (); ++i)
+      {
+        NodeContainer singleSta;
+        singleSta.Add (stas.Get (i));
+        mac.SetType ("ns3::StaWifiMac",
+                     "Ssid", SsidValue (ssid),
+                     "ActiveProbing", BooleanValue (false),
+                     "WaitBeaconTimeout",
+                     TimeValue (MilliSeconds (120 + i * wifiAssocStaggerMs)));
+        staDev.Add (wifi.Install (phy, mac, singleSta));
+      }
+
+    auto ConfigureWifiDevices = [&] (const NetDeviceContainer &devices) {
+      for (uint32_t i = 0; i < devices.GetN (); ++i)
+        {
+          Ptr<WifiNetDevice> dev = DynamicCast<WifiNetDevice> (devices.Get (i));
+          if (!dev)
+            {
+              continue;
+            }
+
+          if (Ptr<HeConfiguration> he = dev->GetHeConfiguration ())
+            {
+              he->SetGuardInterval (NanoSeconds (wifiHeGuardIntervalNs));
+              he->SetMpduBufferSize (wifiHeMpduBufferSize);
+            }
+
+          Ptr<WifiMac> wifiMac = dev->GetMac ();
+          if (Ptr<RegularWifiMac> rmac = DynamicCast<RegularWifiMac> (wifiMac))
+            {
+              rmac->SetAttribute ("BE_MaxAmpduSize",
+                                  UintegerValue (wifiBeMaxAmpduSize));
+            }
+        }
+    };
+    ConfigureWifiDevices (apDev);
+    ConfigureWifiDevices (staDev);
 
     Ipv4AddressHelper wifiAddr;
     wifiAddr.SetBase (subnetBase.c_str (), "255.255.255.0");
@@ -375,10 +749,22 @@ main (int argc, char *argv[])
     staIf = wifiAddr.Assign (staDev);
   };
 
-  Ipv4InterfaceContainer ap1WifiIf, sta1WifiIf;
-  Ipv4InterfaceContainer ap2WifiIf, sta2WifiIf;
-  installWifi (apNodes.Get (0), wifiSta1, "wifi-ap-1", "10.10.0.0", ap1WifiIf, sta1WifiIf);
-  installWifi (apNodes.Get (1), wifiSta2, "wifi-ap-2", "10.11.0.0", ap2WifiIf, sta2WifiIf);
+  std::vector<Ipv4InterfaceContainer> apWifiIfs (numAps);
+  std::vector<Ipv4InterfaceContainer> staWifiIfs (numAps);
+  std::vector<std::string> wifiSubnetCidrs;
+  wifiSubnetCidrs.reserve (numAps);
+  for (uint32_t apIndex = 0; apIndex < numAps; ++apIndex)
+    {
+      const std::string subnetBase =
+          "10." + std::to_string (10 + apIndex) + ".0.0";
+      wifiSubnetCidrs.push_back (subnetBase + "/24");
+      installWifi (apNodes.Get (apIndex),
+                   wifiStaGroups[apIndex],
+                   "wifi-ap-" + std::to_string (apIndex + 1),
+                   subnetBase,
+                   apWifiIfs[apIndex],
+                   staWifiIfs[apIndex]);
+    }
 
   // ---------------- NR (5G) + EPC ----------------
   Ptr<NrPointToPointEpcHelper> epcHelper = CreateObject<NrPointToPointEpcHelper> ();
@@ -386,10 +772,11 @@ main (int argc, char *argv[])
   Ptr<NrHelper> nrHelper = CreateObject<NrHelper> ();
   nrHelper->SetEpcHelper (epcHelper);
   nrHelper->SetBeamformingHelper (beamformingHelper);
+  epcHelper->SetAttribute ("S1uLinkDelay", TimeValue (MilliSeconds (0)));
 
   CcBwpCreator ccBwpCreator;
-  CcBwpCreator::SimpleOperationBandConf bandConf (4.9e9,
-                                                  100e6,
+  CcBwpCreator::SimpleOperationBandConf bandConf (nrFrequency,
+                                                  nrBandwidth,
                                                   1,
                                                   BandwidthPartInfo::UMi_StreetCanyon_LoS);
   OperationBandInfo band = ccBwpCreator.CreateOperationBandContiguousCc (bandConf);
@@ -398,11 +785,27 @@ main (int argc, char *argv[])
 
   nrHelper->SetPathlossAttribute ("ShadowingEnabled", BooleanValue (false));
   nrHelper->SetSchedulerTypeId (NrMacSchedulerOfdmaRR::GetTypeId ());
+  nrHelper->SetSchedulerAttribute ("FixedMcsUl", BooleanValue (nrFixedMcsUl));
+  nrHelper->SetSchedulerAttribute ("FixedMcsDl", BooleanValue (nrFixedMcsDl));
+  nrHelper->SetSchedulerAttribute ("StartingMcsUl",
+                                   UintegerValue (static_cast<uint8_t> (nrStartingMcsUl)));
+  nrHelper->SetSchedulerAttribute ("StartingMcsDl",
+                                   UintegerValue (static_cast<uint8_t> (nrStartingMcsDl)));
+  nrHelper->SetGnbDlAmcAttribute ("AmcModel", EnumValue (nrAmcModelEnum));
+  nrHelper->SetGnbUlAmcAttribute ("AmcModel", EnumValue (nrAmcModelEnum));
   beamformingHelper->SetAttribute ("BeamformingMethod",
                                    TypeIdValue (DirectPathBeamforming::GetTypeId ()));
 
+  if (nrUseEesmT2)
+    {
+      Config::SetDefault ("ns3::NrAmc::ErrorModelType",
+                          TypeIdValue (TypeId::LookupByName ("ns3::NrEesmCcT2")));
+      nrHelper->SetDlErrorModel ("ns3::NrEesmCcT2");
+      nrHelper->SetUlErrorModel ("ns3::NrEesmCcT2");
+    }
+
   nrHelper->SetUeAntennaAttribute ("NumRows", UintegerValue (1));
-  nrHelper->SetUeAntennaAttribute ("NumColumns", UintegerValue (1));
+  nrHelper->SetUeAntennaAttribute ("NumColumns", UintegerValue (2));
   nrHelper->SetUeAntennaAttribute (
       "AntennaElement",
       PointerValue (CreateObject<ThreeGppAntennaModel> ()));
@@ -411,13 +814,17 @@ main (int argc, char *argv[])
   nrHelper->SetGnbAntennaAttribute (
       "AntennaElement",
       PointerValue (CreateObject<ThreeGppAntennaModel> ()));
+  nrHelper->SetGnbPhyAttribute ("TxPower", DoubleValue (nrGnbTxPower));
+  nrHelper->SetUePhyAttribute ("TxPower", DoubleValue (nrUeTxPower));
 
   NetDeviceContainer gnbDevs = nrHelper->InstallGnbDevice (gnbNode, allBwps);
   NetDeviceContainer ueDevs = nrHelper->InstallUeDevice (ueNodes, allBwps);
 
-  nrHelper->GetGnbPhy (gnbDevs.Get (0), 0)->SetTxPower (30.0);
-  nrHelper->GetGnbPhy (gnbDevs.Get (0), 0)->SetAttribute ("Numerology", UintegerValue (1));
-  nrHelper->GetGnbPhy (gnbDevs.Get (0), 0)->SetAttribute ("Pattern", StringValue ("DL|F|UL|UL|UL|"));
+  nrHelper->GetGnbPhy (gnbDevs.Get (0), 0)->SetTxPower (nrGnbTxPower);
+  nrHelper->GetGnbPhy (gnbDevs.Get (0), 0)->SetAttribute ("Numerology",
+                                                          UintegerValue (nrNumerology));
+  nrHelper->GetGnbPhy (gnbDevs.Get (0), 0)->SetAttribute ("Pattern",
+                                                          StringValue (nrTddPattern));
   DynamicCast<NrGnbNetDevice> (gnbDevs.Get (0))->UpdateConfig ();
   for (auto it = ueDevs.Begin (); it != ueDevs.End (); ++it)
     {
@@ -439,7 +846,7 @@ main (int argc, char *argv[])
                        ueDevs,
                        "pre-stop");
 
-  // ---------------- Wired backbone (Server <-> {PGW, AP1, AP2}) ----------------
+  // ---------------- Wired backbone (Server <-> {PGW, APs}) ----------------
   Ptr<Node> pgw = epcHelper->GetPgwNode ();
 
   CsmaHelper csma;
@@ -449,53 +856,68 @@ main (int argc, char *argv[])
   NodeContainer backboneNodes;
   backboneNodes.Add (server);
   backboneNodes.Add (pgw);
-  backboneNodes.Add (apNodes.Get (0));
-  backboneNodes.Add (apNodes.Get (1));
+  backboneNodes.Add (apNodes);
 
   NetDeviceContainer backboneDevs = csma.Install (backboneNodes);
   Ipv4AddressHelper backboneAddr;
-  backboneAddr.SetBase ("10.0.0.0", "255.255.255.0");
+  backboneAddr.SetBase ("172.16.0.0", "255.255.255.0");
   Ipv4InterfaceContainer backboneIf = backboneAddr.Assign (backboneDevs);
 
   const Ipv4Address serverBackboneIp = backboneIf.GetAddress (0);
   const Ipv4Address pgwBackboneIp = backboneIf.GetAddress (1);
-  const Ipv4Address ap1BackboneIp = backboneIf.GetAddress (2);
-  const Ipv4Address ap2BackboneIp = backboneIf.GetAddress (3);
+  std::vector<Ipv4Address> apBackboneIps;
+  apBackboneIps.reserve (numAps);
+  for (uint32_t apIndex = 0; apIndex < numAps; ++apIndex)
+    {
+      apBackboneIps.push_back (backboneIf.GetAddress (2 + apIndex));
+    }
 
   const std::string serverBackboneIfName = GetIfName (server, serverBackboneIp);
+  BackboneTcpPayloadTracker backboneTcpTracker;
+  if (checkBackboneDualTraffic)
+    {
+      const bool connected =
+          backboneDevs.Get (0)->TraceConnectWithoutContext ("MacRx",
+                                                            MakeCallback (&BackboneTcpPayloadTracker::Rx,
+                                                                          &backboneTcpTracker));
+      NS_ABORT_MSG_UNLESS (connected, "Failed to connect server backbone MacRx trace");
+    }
 
-  // Server routes to UE + both WiFi subnets.
+  // Server routes to UE + all WiFi subnets.
   RunIpAt (server, 0.40,
            "route add 7.0.0.0/8 via " + ToString (pgwBackboneIp) + " dev " +
                serverBackboneIfName);
-  RunIpAt (server, 0.41,
-           "route add 10.10.0.0/24 via " + ToString (ap1BackboneIp) + " dev " +
-               serverBackboneIfName);
-  RunIpAt (server, 0.42,
-           "route add 10.11.0.0/24 via " + ToString (ap2BackboneIp) + " dev " +
-               serverBackboneIfName);
+  for (uint32_t apIndex = 0; apIndex < numAps; ++apIndex)
+    {
+      RunIpAt (server,
+               0.41 + (apIndex * 0.01),
+               "route add " + wifiSubnetCidrs[apIndex] + " via " +
+                   ToString (apBackboneIps[apIndex]) + " dev " +
+                   serverBackboneIfName);
+    }
 
   // APs advertise WiFi subnets as directly connected (helps routing clarity).
-  RunIpAt (apNodes.Get (0), 0.40, "route add 10.10.0.0/24 dev " + GetIfName (apNodes.Get (0), ap1WifiIf.GetAddress (0)));
-  RunIpAt (apNodes.Get (1), 0.40, "route add 10.11.0.0/24 dev " + GetIfName (apNodes.Get (1), ap2WifiIf.GetAddress (0)));
+  for (uint32_t apIndex = 0; apIndex < numAps; ++apIndex)
+    {
+      RunIpAt (apNodes.Get (apIndex),
+               0.40,
+               "route add " + wifiSubnetCidrs[apIndex] + " dev " +
+                   GetIfName (apNodes.Get (apIndex),
+                              apWifiIfs[apIndex].GetAddress (0)));
+    }
 
   // Build per-UE WiFi config maps (address + gateway + subnet) for policy routing.
   std::map<uint32_t, WifiClientConfig> wifiCfgByNodeId;
-  for (uint32_t i = 0; i < wifiSta1.GetN (); ++i)
+  for (uint32_t apIndex = 0; apIndex < numAps; ++apIndex)
     {
-      WifiClientConfig cfg;
-      cfg.addr = sta1WifiIf.GetAddress (i);
-      cfg.gateway = ap1WifiIf.GetAddress (0);
-      cfg.subnetCidr = "10.10.0.0/24";
-      wifiCfgByNodeId[wifiSta1.Get (i)->GetId ()] = cfg;
-    }
-  for (uint32_t i = 0; i < wifiSta2.GetN (); ++i)
-    {
-      WifiClientConfig cfg;
-      cfg.addr = sta2WifiIf.GetAddress (i);
-      cfg.gateway = ap2WifiIf.GetAddress (0);
-      cfg.subnetCidr = "10.11.0.0/24";
-      wifiCfgByNodeId[wifiSta2.Get (i)->GetId ()] = cfg;
+      for (uint32_t i = 0; i < wifiStaGroups[apIndex].GetN (); ++i)
+        {
+          WifiClientConfig cfg;
+          cfg.addr = staWifiIfs[apIndex].GetAddress (i);
+          cfg.gateway = apWifiIfs[apIndex].GetAddress (0);
+          cfg.subnetCidr = wifiSubnetCidrs[apIndex];
+          wifiCfgByNodeId[wifiStaGroups[apIndex].Get (i)->GetId ()] = cfg;
+        }
     }
 
   // ---------------- Client routing (policy routing for MPTCP) ----------------
@@ -541,6 +963,15 @@ main (int argc, char *argv[])
   ApplicationContainer sinkApps = sinkHelper.Install (server);
   sinkApps.Start (Seconds (sinkStart));
   sinkApps.Stop (Seconds (simTime));
+  PacketSinkRxTracker sinkRxTracker;
+  if (verifyDualLinks && !enableMptcp)
+    {
+      const bool connected =
+          sinkApps.Get (0)->TraceConnectWithoutContext ("RxWithAddresses",
+                                                        MakeCallback (&PacketSinkRxTracker::Rx,
+                                                                      &sinkRxTracker));
+      NS_ABORT_MSG_UNLESS (connected, "Failed to connect PacketSink RxWithAddresses trace");
+    }
 
   Ptr<UniformRandomVariable> startJitterRng = CreateObject<UniformRandomVariable> ();
   startJitterRng->SetStream (clientStartJitterStream);
@@ -549,6 +980,31 @@ main (int argc, char *argv[])
 
   RateDualHelper traffic ("ns3::LinuxTcpSocketFactory",
                           InetSocketAddress (serverBackboneIp, port));
+  traffic.SetAttribute ("SteadyRate", DataRateValue (DataRate (appSteadyRate)));
+  traffic.SetAttribute ("BurstRate", DataRateValue (DataRate (appBurstRate)));
+  traffic.SetAttribute ("InitialSendDelay",
+                        TimeValue (Seconds (appInitialSendDelay)));
+  if (appTrafficModel == "duration")
+    {
+      traffic.SetAttribute ("TrafficModel",
+                            EnumValue (RateDualModeApplication::TRAFFIC_MODEL_DURATION));
+      traffic.SetAttribute ("SteadyTime",
+                            StringValue (appSteadyTime));
+      traffic.SetAttribute ("BurstTime",
+                            StringValue (appBurstTime));
+    }
+  else if (appTrafficModel == "legacy-probability")
+    {
+      traffic.SetAttribute ("TrafficModel",
+                            EnumValue (RateDualModeApplication::TRAFFIC_MODEL_LEGACY_PROBABILITY));
+      traffic.SetAttribute ("BurstProb", DoubleValue (appBurstProb));
+      traffic.SetAttribute ("StateInterval", StringValue (appStateInterval));
+    }
+  else
+    {
+      NS_ABORT_MSG ("Unsupported appTrafficModel=\"" << appTrafficModel
+                                                     << "\"; use duration or legacy-probability");
+    }
   ApplicationContainer clientApps;
   for (uint32_t i = 0; i < ueNodes.GetN (); ++i)
     {
@@ -562,6 +1018,7 @@ main (int argc, char *argv[])
       one.Stop (Seconds (simTime));
       clientApps.Add (one);
     }
+  traffic.AssignStreams (clientApps, appStreamBase);
   if (clientStartJitter > 0.0)
     {
       std::cout << std::fixed << std::setprecision (6);
@@ -583,8 +1040,47 @@ main (int argc, char *argv[])
       RunIpAt (server, clientStart - 0.2, "route show table all");
     }
 
+  if (dumpSockets)
+    {
+      DceApplicationHelper dce;
+      dce.SetStackSize (1 << 20);
+      dce.SetBinary ("ss");
+      dce.ResetArguments ();
+      dce.ResetEnvironment ();
+      dce.AddArgument ("-tin");
+
+      const double dumpTime = std::max (clientStart + 1.0, simTime - 0.4);
+      ApplicationContainer serverSs = dce.Install (server);
+      serverSs.Start (Seconds (dumpTime));
+      serverSs.Stop (Seconds (simTime + 0.1));
+
+      for (uint32_t i = 0; i < std::min (dumpSocketCount, ueNodes.GetN ()); ++i)
+        {
+          ApplicationContainer ueSs = dce.Install (ueNodes.Get (i));
+          ueSs.Start (Seconds (dumpTime));
+          ueSs.Stop (Seconds (simTime + 0.1));
+        }
+    }
+
   Simulator::Stop (Seconds (simTime + 0.5));
   Simulator::Run ();
+
+  Time firstPayloadTxTime = Time::Max ();
+  bool hasPayloadStart = false;
+  for (uint32_t i = 0; i < clientApps.GetN (); ++i)
+    {
+      Ptr<RateDualModeApplication> app =
+          DynamicCast<RateDualModeApplication> (clientApps.Get (i));
+      if (!app || !app->HasSentPayload ())
+        {
+          continue;
+        }
+      firstPayloadTxTime = std::min (firstPayloadTxTime, app->GetFirstPayloadTxTime ());
+      hasPayloadStart = true;
+    }
+  const double payloadStartSeconds =
+      hasPayloadStart ? firstPayloadTxTime.GetSeconds () : simTime;
+  const double payloadActiveSeconds = std::max (0.0, simTime - payloadStartSeconds);
 
   // ---------------- PacketSink stats (like myscripts/app-test/app-test1.cc) ----------------
   Ptr<PacketSink> sink = DynamicCast<PacketSink> (sinkApps.Get (0));
@@ -593,14 +1089,16 @@ main (int argc, char *argv[])
       const uint64_t totalBytes = sink->GetTotalRx ();
       const uint32_t acceptedSockets =
           static_cast<uint32_t> (sink->GetAcceptedSockets ().size ());
-      const double activeSeconds = std::max (0.0, simTime - clientStart);
       const double throughputMbps =
-          (activeSeconds > 0.0) ? (totalBytes * 8.0 / activeSeconds / 1e6) : 0.0;
+          (payloadActiveSeconds > 0.0)
+              ? (totalBytes * 8.0 / payloadActiveSeconds / 1e6)
+              : 0.0;
 
       std::cout << std::fixed << std::setprecision (3);
       std::cout << "[120-demo] PacketSink totalRxBytes=" << totalBytes
                 << " acceptedSockets=" << acceptedSockets
-                << " activeSeconds=" << activeSeconds
+                << " payloadStartSeconds=" << payloadStartSeconds
+                << " activeSeconds=" << payloadActiveSeconds
                 << " throughputMbps=" << throughputMbps << std::endl;
     }
   else
@@ -619,7 +1117,7 @@ main (int argc, char *argv[])
         {
           continue;
         }
-      if (app->IsConnected ())
+      if (app->HasConnected ())
         {
           clientConnected++;
         }
@@ -633,6 +1131,193 @@ main (int argc, char *argv[])
             << "/" << clientApps.GetN ()
             << " inProgress=" << clientInProgress
             << " totalConnectFailures=" << clientConnectFailures << std::endl;
+
+  if (verifyDualLinks && enableMptcp)
+    {
+      std::cout << "[120-demo] verifyDualLinks warning: PacketSink/RxWithAddresses"
+                << " observes the MPTCP meta-socket peer, not per-subflow payload."
+                << " Use --dumpSockets=1 for real subflow verification."
+                << std::endl;
+    }
+  if (checkBackboneDualTraffic)
+    {
+      uint32_t nrPayloadActive = 0;
+      uint32_t wifiPayloadActive = 0;
+      uint32_t bothPayloadActive = 0;
+      uint64_t totalNrBytes = 0;
+      uint64_t totalWifiBytes = 0;
+      std::ostringstream missingNr;
+      std::ostringstream missingWifi;
+      bool hasMissingNr = false;
+      bool hasMissingWifi = false;
+
+      for (uint32_t i = 0; i < ueNodes.GetN (); ++i)
+        {
+          const Ptr<Node> ue = ueNodes.Get (i);
+          const uint32_t nodeId = ue->GetId ();
+          const auto wifiIt = wifiCfgByNodeId.find (nodeId);
+          NS_ABORT_MSG_IF (wifiIt == wifiCfgByNodeId.end (),
+                           "Missing WiFi config for UE while checking backbone traffic");
+
+          const uint64_t nrBytes =
+              backboneTcpTracker.GetPayloadBytes (ueNrIf.GetAddress (i));
+          const uint64_t wifiBytes =
+              backboneTcpTracker.GetPayloadBytes (wifiIt->second.addr);
+          totalNrBytes += nrBytes;
+          totalWifiBytes += wifiBytes;
+
+          if (nrBytes > 0)
+            {
+              ++nrPayloadActive;
+            }
+          else
+            {
+              if (hasMissingNr)
+                {
+                  missingNr << ",";
+                }
+              missingNr << nodeId;
+              hasMissingNr = true;
+            }
+
+          if (wifiBytes > 0)
+            {
+              ++wifiPayloadActive;
+            }
+          else
+            {
+              if (hasMissingWifi)
+                {
+                  missingWifi << ",";
+                }
+              missingWifi << nodeId;
+              hasMissingWifi = true;
+            }
+
+          if (nrBytes > 0 && wifiBytes > 0)
+            {
+              ++bothPayloadActive;
+            }
+        }
+
+      const double nrThroughputMbps =
+          (payloadActiveSeconds > 0.0)
+              ? (totalNrBytes * 8.0 / payloadActiveSeconds / 1e6)
+              : 0.0;
+      const double wifiThroughputMbps =
+          (payloadActiveSeconds > 0.0)
+              ? (totalWifiBytes * 8.0 / payloadActiveSeconds / 1e6)
+              : 0.0;
+
+      std::cout << std::fixed << std::setprecision (3);
+      std::cout << "[120-demo] Backbone dual-traffic summary: nrActive="
+                << nrPayloadActive << "/" << ueNodes.GetN ()
+                << " wifiActive=" << wifiPayloadActive << "/" << ueNodes.GetN ()
+                << " bothActive=" << bothPayloadActive << "/" << ueNodes.GetN ()
+                << " nrPayloadBytes=" << totalNrBytes
+                << " wifiPayloadBytes=" << totalWifiBytes
+                << " nrThroughputMbps=" << nrThroughputMbps
+                << " wifiThroughputMbps=" << wifiThroughputMbps
+                << std::endl;
+
+      if (hasMissingNr)
+        {
+          std::cout << "[120-demo] Backbone missing NR payload UEs: "
+                    << missingNr.str () << std::endl;
+        }
+      if (hasMissingWifi)
+        {
+          std::cout << "[120-demo] Backbone missing WiFi payload UEs: "
+                    << missingWifi.str () << std::endl;
+        }
+    }
+  else if (verifyDualLinks)
+    {
+      uint32_t nrPayloadActive = 0;
+      uint32_t wifiPayloadActive = 0;
+      uint32_t bothPayloadActive = 0;
+      uint64_t minNrBytes = std::numeric_limits<uint64_t>::max ();
+      uint64_t minWifiBytes = std::numeric_limits<uint64_t>::max ();
+      std::ostringstream missingNr;
+      std::ostringstream missingWifi;
+      bool hasMissingNr = false;
+      bool hasMissingWifi = false;
+
+      for (uint32_t i = 0; i < ueNodes.GetN (); ++i)
+        {
+          const Ptr<Node> ue = ueNodes.Get (i);
+          const uint32_t nodeId = ue->GetId ();
+          const auto wifiIt = wifiCfgByNodeId.find (nodeId);
+          NS_ABORT_MSG_IF (wifiIt == wifiCfgByNodeId.end (),
+                           "Missing WiFi config for UE while verifying dual links");
+
+          const uint64_t nrBytes = sinkRxTracker.GetBytes (ueNrIf.GetAddress (i));
+          const uint64_t wifiBytes = sinkRxTracker.GetBytes (wifiIt->second.addr);
+
+          if (nrBytes > 0)
+            {
+              ++nrPayloadActive;
+              minNrBytes = std::min (minNrBytes, nrBytes);
+            }
+          else
+            {
+              if (hasMissingNr)
+                {
+                  missingNr << ",";
+                }
+              missingNr << nodeId;
+              hasMissingNr = true;
+            }
+
+          if (wifiBytes > 0)
+            {
+              ++wifiPayloadActive;
+              minWifiBytes = std::min (minWifiBytes, wifiBytes);
+            }
+          else
+            {
+              if (hasMissingWifi)
+                {
+                  missingWifi << ",";
+                }
+              missingWifi << nodeId;
+              hasMissingWifi = true;
+            }
+
+          if (nrBytes > 0 && wifiBytes > 0)
+            {
+              ++bothPayloadActive;
+            }
+        }
+
+      std::cout << "[120-demo] Dual-link payload summary: nrActive="
+                << nrPayloadActive << "/" << ueNodes.GetN ()
+                << " wifiActive=" << wifiPayloadActive << "/"
+                << ueNodes.GetN ()
+                << " bothActive=" << bothPayloadActive << "/"
+                << ueNodes.GetN ();
+      if (nrPayloadActive > 0)
+        {
+          std::cout << " minNrBytes=" << minNrBytes;
+        }
+      if (wifiPayloadActive > 0)
+        {
+          std::cout << " minWifiBytes=" << minWifiBytes;
+        }
+      std::cout << std::endl;
+
+      if (hasMissingNr)
+        {
+          std::cout << "[120-demo] Missing NR payload UEs: "
+                    << missingNr.str () << std::endl;
+        }
+      if (hasMissingWifi)
+        {
+          std::cout << "[120-demo] Missing WiFi payload UEs: "
+                    << missingWifi.str () << std::endl;
+        }
+
+    }
 
   Simulator::Destroy ();
   return 0;

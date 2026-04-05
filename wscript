@@ -124,11 +124,11 @@ def configure(conf):
 
     ns3waf.check_modules(conf, ['core', 'network', 'internet'], mandatory = True)
     ns3waf.check_modules(conf, ['point-to-point', 'tap-bridge', 'netanim'], mandatory = False)
-    ns3waf.check_modules(conf, ['wifi', 'point-to-point', 'csma', 'mobility'], mandatory = False)
+    ns3waf.check_modules(conf, ['wifi', 'point-to-point', 'csma', 'mobility', 'spectrum'], mandatory = False)
     ns3waf.check_modules(conf, ['point-to-point-layout'], mandatory = False)
     ns3waf.check_modules(conf, ['mpi', 'lte'], mandatory = False)
     ns3waf.check_modules(conf, ['visualizer'], mandatory = False)
-    ns3waf.check_modules(conf, ['applications'], mandatory = False)
+    ns3waf.check_modules(conf, ['applications', 'internet-apps'], mandatory = False)
     ns3waf.check_modules(conf, ['fd-net-device'], mandatory = False)
     conf.check(header_name='stdint.h', define_name='HAVE_STDINT_H', mandatory=False)
     conf.check(header_name='inttypes.h', define_name='HAVE_INTTYPES_H', mandatory=False)
@@ -1115,4 +1115,3 @@ def shutdown(ctx):
         wutils.run_python_program(Options.options.pyrun, env,
                                   visualize=Options.options.visualize)
         raise SystemExit(0)
-

@@ -50,10 +50,10 @@ main (int argc, char *argv[])
   double ueDistance = 5.0;       // UE 与 gNB 距离（米）
   std::string tddPattern = "DL|F|UL|UL|UL|"; // DFUUU，上行优先
   bool useNrEesmT2 = false;      // 使用 NR EESM Table2 (最高 256QAM) 的误码模型/AMC
-  bool fixedMcsUl = false;       // 固定 UL MCS（用于“理论上限”测试）
-  bool fixedMcsDl = false;       // 固定 DL MCS（用于“理论上限”测试）
-  uint16_t startingMcsUl = 0;   // Table2 下最高 MCS=27（0..27）
-  uint16_t startingMcsDl = 0;   // Table2 下最高 MCS=27（0..27）
+  bool fixedMcsUl = true;       // 固定 UL MCS（用于“理论上限”测试）
+  bool fixedMcsDl = true;       // 固定 DL MCS（用于“理论上限”测试）
+  uint16_t startingMcsUl = 27;   // Table2 下最高 MCS=27（0..27）
+  uint16_t startingMcsDl = 27;   // Table2 下最高 MCS=27（0..27）
   std::string amcModel = "ErrorModel"; // NrAmc::AmcModel: ErrorModel/ShannonModel
   bool enableNrTraces = false;   // 生成 NR PHY/MAC trace（RxPacketTrace*.txt 等）
   bool useUdp = false;           // 是否用 iperf UDP 模式
@@ -227,7 +227,7 @@ main (int argc, char *argv[])
       PointerValue (CreateObject<ThreeGppAntennaModel> ()));
 
   // 近距离 UL 测试：gNB 下行控制信号保持常规功率，UE 发射功率设成手机常见上限附近
-  nrHelper->SetGnbPhyAttribute ("TxPower", DoubleValue (30.0));
+  nrHelper->SetGnbPhyAttribute ("TxPower", DoubleValue (40.0));
   nrHelper->SetUePhyAttribute ("TxPower", DoubleValue (23.0));
 
   if (useNrEesmT2)

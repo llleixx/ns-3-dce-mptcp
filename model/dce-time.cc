@@ -5,6 +5,7 @@
 #include <ns3/log.h>
 #include <ns3/node.h>
 #include <ns3/simulator.h>
+#include <cstdint>
 #include <errno.h>
 #include "sys/dce-timerfd.h"
 #include "unix-timer-fd.h"
@@ -136,7 +137,8 @@ int dce_timer_create(clockid_t clockid, struct sigevent *sevp, timer_t *timerid)
   NS_ASSERT (current != 0);
 
   int fd = UtilsAllocateFd ();
-  memcpy (timerid, &fd, sizeof (timer_t));
+  timer_t timerHandle = reinterpret_cast<timer_t> (static_cast<intptr_t> (fd));
+  memcpy (timerid, &timerHandle, sizeof (timerHandle));
   if (fd == -1)
   {
      current->err = EMFILE;
@@ -167,5 +169,3 @@ int dce_timer_gettime (int fd, struct itimerspec *cur_value)
 
   OPENED_FD_METHOD (int, Gettime (cur_value))
 }
-
-

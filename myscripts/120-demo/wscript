@@ -8,6 +8,31 @@ def configure(conf):
 
 
 def build(bld):
+    nr_lib = 'ns3.35-nr-' + bld.env['LIB_SUFFIX']
+    bld.build_a_script(
+        'dce',
+        needed=[
+            'core',
+            'network',
+            'internet',
+            'internet-apps',
+            'point-to-point',
+            'csma',
+            'mobility',
+            'applications',
+            'dce',
+            'lte',
+            'wifi',
+            'spectrum',
+        ],
+        target='bin/120-demo',
+        source=[
+            '120-demo.cc',
+            '../app-test/rate-dual-helper.cc',
+            '../app-test/rate-dual-application.cc',
+        ],
+        lib=[nr_lib],
+    )
     bld.build_a_script(
         'dce',
         needed=[
@@ -18,15 +43,30 @@ def build(bld):
             'csma',
             'mobility',
             'applications',
-            'dce',
-            'lte',
             'wifi',
+            'spectrum',
         ],
-        target='bin/120-demo',
+        target='bin/link-info-wifi-only',
         source=[
-            '120-demo.cc',
-            '../app-test/rate-dual-helper.cc',
-            '../app-test/rate-dual-application.cc',
+            'link-info/wifi-only/link-info-wifi-only.cc',
         ],
-        lib=['ns3.35-nr-debug'],
+    )
+    bld.build_a_script(
+        'dce',
+        needed=[
+            'core',
+            'network',
+            'internet',
+            'internet-apps',
+            'point-to-point',
+            'mobility',
+            'applications',
+            'flow-monitor',
+            'lte',
+        ],
+        target='bin/link-info-nr-only',
+        source=[
+            'link-info/nr-only/link-info-nr-only.cc',
+        ],
+        lib=[nr_lib],
     )

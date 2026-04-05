@@ -1,0 +1,94 @@
+diff --git a/src/wifi/model/phy-entity.cc b/src/wifi/model/phy-entity.cc
+index e0f8bee45269ca6697816811bf5f2b0578f2bdc2..c239b8e01f6e2e77161a941e450c8498ce7fb209 100644
+--- a/src/wifi/model/phy-entity.cc
++++ b/src/wifi/model/phy-entity.cc
+@@ -659,7 +659,7 @@ PhyEntity::EndReceivePayload (Ptr<Event> event)
+     }
+   else
+     {
+-      m_state->SwitchFromRxEndError (Copy (psdu), snr);
++      m_state->SwitchFromRxEndError (Copy (psdu), txVector, snr);
+     }
+ 
+   DoEndReceivePayload (ppdu);
+diff --git a/src/wifi/model/wifi-phy-state-helper.cc b/src/wifi/model/wifi-phy-state-helper.cc
+index 43c0d3fa75060c7592c1bae7ec775eb60a547a09..a2359ab1df03c33d00e5358e606492ad860e06fb 100644
+--- a/src/wifi/model/wifi-phy-state-helper.cc
++++ b/src/wifi/model/wifi-phy-state-helper.cc
+@@ -485,15 +485,25 @@ WifiPhyStateHelper::SwitchFromRxEndOk (Ptr<WifiPsdu> psdu, RxSignalInfo rxSignal
+   NS_LOG_FUNCTION (this << *psdu << rxSignalInfo << txVector << staId << statusPerMpdu.size () <<
+                    std::all_of(statusPerMpdu.begin(), statusPerMpdu.end(), [](bool v) { return v; })); //returns true if all true
+   NS_ASSERT (statusPerMpdu.size () != 0);
+-  NS_ASSERT (Abs (m_endRx - Simulator::Now ()) < MicroSeconds (1)); //1us corresponds to the maximum propagation delay (delay spread)
+-  //TODO: a better fix would be to call the function once all HE TB PPDUs are received
++  const bool waitingForOtherTbPpdus =
++      txVector.IsUlMu () && (m_endRx - Simulator::Now () > MicroSeconds (1));
++  if (!waitingForOtherTbPpdus)
++    {
++      NS_ASSERT (Abs (m_endRx - Simulator::Now ()) < MicroSeconds (1)); //1us corresponds to the maximum propagation delay (delay spread)
++    }
++  // HE TB PPDUs may be received back-to-back for different STA-IDs while the PHY is still
++  // in RX for the whole UL MU exchange. For the intermediate TB PPDUs, keep the RX state
++  // until the last solicited response ends, but still deliver the payload to upper layers.
+   if (!m_rxOkTrace.IsEmpty ())
+     {
+       m_rxOkTrace (psdu->GetPacket (), rxSignalInfo.snr, txVector.GetMode (staId),
+                    txVector.GetPreambleType ());
+     }
+-  NotifyRxEndOk ();
+-  DoSwitchFromRx ();
++  if (!waitingForOtherTbPpdus)
++    {
++      NotifyRxEndOk ();
++      DoSwitchFromRx ();
++    }
+   if (!m_rxOkCallback.IsNull ())
+     {
+       m_rxOkCallback (psdu, rxSignalInfo, txVector, statusPerMpdu);
+@@ -501,17 +511,24 @@ WifiPhyStateHelper::SwitchFromRxEndOk (Ptr<WifiPsdu> psdu, RxSignalInfo rxSignal
+ }
+ 
+ void
+-WifiPhyStateHelper::SwitchFromRxEndError (Ptr<WifiPsdu> psdu, double snr)
++WifiPhyStateHelper::SwitchFromRxEndError (Ptr<WifiPsdu> psdu, WifiTxVector txVector, double snr)
+ {
+-  NS_LOG_FUNCTION (this << *psdu << snr);
+-  NS_ASSERT (Abs (m_endRx - Simulator::Now ()) < MicroSeconds (1)); //1us corresponds to the maximum propagation delay (delay spread)
+-  //TODO: a better fix would be to call the function once all HE TB PPDUs are received
++  NS_LOG_FUNCTION (this << *psdu << txVector << snr);
++  const bool waitingForOtherTbPpdus =
++      txVector.IsUlMu () && (m_endRx - Simulator::Now () > MicroSeconds (1));
++  if (!waitingForOtherTbPpdus)
++    {
++      NS_ASSERT (Abs (m_endRx - Simulator::Now ()) < MicroSeconds (1)); //1us corresponds to the maximum propagation delay (delay spread)
++    }
+   if (!m_rxErrorTrace.IsEmpty ())
+     {
+       m_rxErrorTrace (psdu->GetPacket (), snr);
+     }
+-  NotifyRxEndError ();
+-  DoSwitchFromRx ();
++  if (!waitingForOtherTbPpdus)
++    {
++      NotifyRxEndError ();
++      DoSwitchFromRx ();
++    }
+   if (!m_rxErrorCallback.IsNull ())
+     {
+       m_rxErrorCallback (psdu);
+diff --git a/src/wifi/model/wifi-phy-state-helper.h b/src/wifi/model/wifi-phy-state-helper.h
+index 0d43d361d738c77837978d1df2bada6c554077d3..558c91c477d0b79ff50f0cc2b8b0f69e7fe021b1 100644
+--- a/src/wifi/model/wifi-phy-state-helper.h
++++ b/src/wifi/model/wifi-phy-state-helper.h
+@@ -208,9 +208,10 @@ public:
+    * Switch from RX after the reception failed.
+    *
+    * \param psdu the PSDU that we failed to received
++   * \param txVector TXVECTOR of the PSDU
+    * \param snr the SNR of the received PSDU in linear scale
+    */
+-  void SwitchFromRxEndError (Ptr<WifiPsdu> psdu, double snr);
++  void SwitchFromRxEndError (Ptr<WifiPsdu> psdu, WifiTxVector txVector, double snr);
+   /**
+    * Switch to CCA busy.
+    *

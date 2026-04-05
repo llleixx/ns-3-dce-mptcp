@@ -8,6 +8,7 @@
 #include "ns3/simulator.h"
 #include "ns3/event-id.h"
 #include "ns3/node.h"
+#include <cstddef>
 
 
 NS_LOG_COMPONENT_DEFINE ("DceLinuxSocketFdFactory");
@@ -82,7 +83,10 @@ LinuxSocketFdFactory::SetTask (std::string path, std::string value)
 void
 LinuxSocketFdFactory::Set (std::string path, std::string value)
 {
-  if (m_manager == 0)
+  // m_manager is assigned before the kernel stack is fully initialized.
+  // Queue sysctl writes until InitializeStack has completed and m_exported
+  // is ready to serve sysfs iteration.
+  if (m_manager == 0 || !m_stackInitialized)
     {
       m_earlySysfs.push_back (std::make_pair (path,value));
     }
@@ -119,21 +123,27 @@ LinuxSocketFdFactory::GetSysFileList (void)
   struct MyIterator
   {
     struct SimSysIterator head;
+    static MyIterator *ToSelf (const struct SimSysIterator *iter)
+    {
+      const char *base = reinterpret_cast<const char *> (iter);
+      return reinterpret_cast<MyIterator *> (
+          const_cast<char *> (base - offsetof (MyIterator, head)));
+    }
     static void ReportStartDir (const struct SimSysIterator *iter, const char *dirname)
     {
-      struct MyIterator *self = (struct MyIterator *)iter;
+      MyIterator *self = ToSelf (iter);
       self->m_stack.push_back (self->m_currentPath);
       self->m_currentPath += "." + std::string (dirname);
     }
     static void ReportEndDir (const struct SimSysIterator *iter)
     {
-      struct MyIterator *self = (struct MyIterator *)iter;
+      MyIterator *self = ToSelf (iter);
       self->m_currentPath = self->m_stack.back ();
       self->m_stack.pop_back ();
     }
     static void ReportFile (const struct SimSysIterator *iter, const char *filename, int flags, struct SimSysFile *file)
     {
-      struct MyIterator *self = (struct MyIterator *)iter;
+      MyIterator *self = ToSelf (iter);
       std::string path = self->m_currentPath + "." + filename;
       self->m_list.push_back (std::make_pair (path, file));
     }
@@ -154,14 +164,15 @@ void
 LinuxSocketFdFactory::InitializeStack (void)
 {
   KernelSocketFdFactory::InitializeStack ();
-  Set (".net.ipv4.conf.all.forwarding", "1");
-  Set (".net.ipv4.conf.all.log_martians", "1");
-  Set (".net.ipv6.conf.all.forwarding", "0");
+  m_stackInitialized = true;
+  SetTask (".net.ipv4.conf.all.forwarding", "1");
+  SetTask (".net.ipv4.conf.all.log_martians", "1");
+  SetTask (".net.ipv6.conf.all.forwarding", "0");
 
   while (!m_earlySysfs.empty ())
     {
       std::pair<std::string,std::string> op = m_earlySysfs.front ();
-      Set (op.first, op.second);
+      SetTask (op.first, op.second);
       m_earlySysfs.pop_front ();
     }
 }
