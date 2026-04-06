@@ -30,18 +30,22 @@ namespace
 struct FlowSummary
 {
   uint64_t rxBytes = 0;
+  uint64_t grossRxBytes = 0;
   uint64_t rxPackets = 0;
   uint64_t lostPackets = 0;
   Time delaySum = Seconds (0);
   Time jitterSum = Seconds (0);
-  double minFlowThroughputMbps = std::numeric_limits<double>::max ();
-  double maxFlowThroughputMbps = 0.0;
+  double netMinFlowThroughputMbps = std::numeric_limits<double>::max ();
+  double netMaxFlowThroughputMbps = 0.0;
+  double grossMinFlowThroughputMbps = std::numeric_limits<double>::max ();
+  double grossMaxFlowThroughputMbps = 0.0;
   uint32_t activeFlows = 0;
 };
 
 struct SourceStats
 {
   uint64_t rxBytes = 0;
+  uint64_t grossRxBytes = 0;
   uint64_t rxPackets = 0;
   uint64_t inferredLostPackets = 0;
   Time delaySum = Seconds (0);
@@ -72,7 +76,11 @@ public:
     SourceStats &stats = m_stats[src];
     const Time delay = Simulator::Now () - header.GetTs ();
 
+    // With SeqTsSizeHeader enabled, PacketSink strips the tracing header before
+    // invoking RxWithSeqTsSize. packet->GetSize() is therefore net application
+    // payload, while header.GetSize() is the original application packet size.
     stats.rxBytes += packet->GetSize ();
+    stats.grossRxBytes += header.GetSize ();
     stats.rxPackets += 1;
     stats.delaySum += delay;
 
@@ -107,17 +115,25 @@ public:
           }
 
         summary.rxBytes += stats.rxBytes;
+        summary.grossRxBytes += stats.grossRxBytes;
         summary.rxPackets += stats.rxPackets;
         summary.lostPackets += stats.inferredLostPackets;
         summary.delaySum += stats.delaySum;
         summary.jitterSum += stats.jitterSum;
 
-        const double throughputMbps =
+        const double netThroughputMbps =
             (static_cast<double> (stats.rxBytes) * 8.0) / activeSeconds / 1e6;
-        summary.minFlowThroughputMbps =
-            std::min (summary.minFlowThroughputMbps, throughputMbps);
-        summary.maxFlowThroughputMbps =
-            std::max (summary.maxFlowThroughputMbps, throughputMbps);
+        const double grossThroughputMbps =
+            (static_cast<double> (stats.grossRxBytes) * 8.0) / activeSeconds /
+            1e6;
+        summary.netMinFlowThroughputMbps =
+            std::min (summary.netMinFlowThroughputMbps, netThroughputMbps);
+        summary.netMaxFlowThroughputMbps =
+            std::max (summary.netMaxFlowThroughputMbps, netThroughputMbps);
+        summary.grossMinFlowThroughputMbps =
+            std::min (summary.grossMinFlowThroughputMbps, grossThroughputMbps);
+        summary.grossMaxFlowThroughputMbps =
+            std::max (summary.grossMaxFlowThroughputMbps, grossThroughputMbps);
         ++summary.activeFlows;
       }
     return summary;
@@ -153,12 +169,15 @@ PrintSummary (uint32_t numClients,
               uint32_t numAps,
               double simTime,
               double clientStart,
-              uint64_t sinkTotalRxBytes,
               const FlowSummary &summary)
 {
   const double activeSeconds = std::max (1e-9, simTime - clientStart);
+  const double grossThroughputMbps =
+      (static_cast<double> (summary.grossRxBytes) * 8.0) / activeSeconds / 1e6;
+  const double netPayloadThroughputMbps =
+      (static_cast<double> (summary.rxBytes) * 8.0) / activeSeconds / 1e6;
   const double aggregateThroughputMbps =
-      (static_cast<double> (sinkTotalRxBytes) * 8.0) / activeSeconds / 1e6;
+      netPayloadThroughputMbps;
   const double meanDelayMs =
       (summary.rxPackets > 0)
           ? (summary.delaySum.GetSeconds () * 1000.0 / summary.rxPackets)
@@ -177,6 +196,8 @@ PrintSummary (uint32_t numClients,
   std::cout << std::fixed << std::setprecision (3);
   std::cout << "[link-info][wifi] result clients=" << numClients
             << " aps=" << numAps
+            << " grossThroughputMbps=" << grossThroughputMbps
+            << " netPayloadThroughputMbps=" << netPayloadThroughputMbps
             << " aggregateThroughputMbps=" << aggregateThroughputMbps
             << " meanDelayMs=" << meanDelayMs
             << " meanJitterMs=" << meanJitterMs
@@ -184,10 +205,17 @@ PrintSummary (uint32_t numClients,
             << " activeFlows=" << summary.activeFlows << "/" << numClients;
   if (summary.activeFlows > 0)
     {
-      std::cout << " minFlowThroughputMbps=" << summary.minFlowThroughputMbps
-                << " maxFlowThroughputMbps=" << summary.maxFlowThroughputMbps;
+      std::cout << " grossMinFlowThroughputMbps="
+                << summary.grossMinFlowThroughputMbps
+                << " grossMaxFlowThroughputMbps="
+                << summary.grossMaxFlowThroughputMbps
+                << " netMinFlowThroughputMbps="
+                << summary.netMinFlowThroughputMbps
+                << " netMaxFlowThroughputMbps="
+                << summary.netMaxFlowThroughputMbps;
     }
-  std::cout << " sinkTotalRxBytes=" << sinkTotalRxBytes << std::endl;
+  std::cout << " grossRxBytes=" << summary.grossRxBytes
+            << " netPayloadRxBytes=" << summary.rxBytes << std::endl;
 }
 
 } // namespace
@@ -215,7 +243,7 @@ main (int argc, char *argv[])
   std::string wifiPhyModel = "Spectrum";
   double wifiSpectrumMaxLossDb = 110.0;
   bool wifiSpectrumUseFriisLoss = true;
-  uint32_t wifiMuSchedulerStations = 6;
+  uint32_t wifiMuSchedulerStations = 0;
   double wifiBackboneDelayMs = 1.0;
   bool wifiEnableOfdma = true;
   bool wifiEnableUlOfdma = true;
@@ -236,9 +264,14 @@ main (int argc, char *argv[])
                 "Additional deterministic skew per client in us to break exact CBR phase locking",
                 clientStartSkewUs);
   cmd.AddValue ("offeredLoadMbpsPerClient",
-                "Per-client UDP offered load in Mbps",
+                "Per-client application sending rate in Mbps, applied to OnOff PacketSize bytes per packet; "
+                "includes SeqTsSizeHeader when enabled, excludes UDP/IP/MAC/PHY headers",
                 offeredLoadMbpsPerClient);
-  cmd.AddValue ("packetSize", "UDP payload size in bytes", packetSize);
+  cmd.AddValue ("packetSize",
+                "Application packet size in bytes at the OnOffApplication layer; "
+                "with EnableSeqTsSizeHeader=true this includes the 20-byte SeqTsSizeHeader, "
+                "but excludes UDP/IP/MAC/PHY headers",
+                packetSize);
   cmd.AddValue ("portBase", "First UDP port used by the sinks", portBase);
   cmd.AddValue ("wifiAssocStaggerMs",
                 "Additional WaitBeaconTimeout per STA in ms",
@@ -291,6 +324,12 @@ main (int argc, char *argv[])
   NS_ABORT_MSG_IF (wifiPhyModel == "Yans",
                    "wifiPhyModel=Yans is not supported with this 802.11ax/OFDMA script");
 
+  SeqTsSizeHeader seqTsSizeHeader;
+  const uint32_t appHeaderBytes = seqTsSizeHeader.GetSerializedSize ();
+  NS_ABORT_MSG_IF (packetSize < appHeaderBytes,
+                   "packetSize must be at least SeqTsSizeHeader size");
+  const uint32_t netPayloadBytesPerPacket = packetSize - appHeaderBytes;
+
   GlobalValue::Bind ("ChecksumEnabled", BooleanValue (true));
   Config::SetDefault ("ns3::WifiRemoteStationManager::RtsCtsThreshold",
                       UintegerValue (4294967295u));
@@ -319,6 +358,12 @@ main (int argc, char *argv[])
             << " clientStep=" << clientStartStepMs
             << "ms+" << clientStartSkewUs
             << "us/client"
+            << " packetSize=" << packetSize
+            << "B(app)"
+            << " appHeader=" << appHeaderBytes
+            << "B"
+            << " netPayloadPerPacket=" << netPayloadBytesPerPacket
+            << "B"
             << " offeredLoadPerClient=" << ToRateString (offeredLoadMbpsPerClient)
             << std::endl;
 
@@ -710,7 +755,6 @@ main (int argc, char *argv[])
                 numAps,
                 simTime,
                 clientStart,
-                summary.rxBytes,
                 summary);
 
   Simulator::Destroy ();
