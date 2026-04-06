@@ -2,8 +2,8 @@
   "format_version": "pamptcp-summary-v2",
   "scenario_id": "avg-only",
   "traffic_profile_dir": "myscripts/pamptcp/flow-priority-30/avg-only",
-  "report_path": "myscripts/pamptcp/flow-priority-30/avg-only/pamptcp-summary-default-stream1.json",
-  "mptcp_scheduler": "default",
+  "report_path": "myscripts/pamptcp/flow-priority-30/avg-only/pamptcp-summary-blest-stream1.json",
+  "mptcp_scheduler": "blest",
   "sim_time_seconds": 6.000000,
   "sink_start_seconds": 1.000000,
   "client_start_seconds": 2.000000,
@@ -36,7 +36,7 @@
     "window_stop_seconds": 6.000000,
     "duration_seconds": 3.000000,
     "scenario_id": "avg-only",
-    "scheduler": "default",
+    "scheduler": "blest",
     "unknown_packets": 0,
     "outside_window_packets": 84,
     "entries": [
@@ -48,20 +48,20 @@
         "rx_bytes": 673400,
         "throughput_mbps": 1.795733,
         "delay_ms": {
-          "mean": 0.451647,
-          "p50": 0.072835,
-          "p95": 0.816175,
+          "mean": 0.445827,
+          "p50": 0.072596,
+          "p95": 0.854774,
           "p99": 22.134567,
           "p999": 22.447424,
           "max": 22.670281
         },
         "jitter_ms": {
-          "mean": 0.385751,
-          "p50": 0.004467,
-          "p95": 0.607500,
-          "p99": 22.062022,
-          "p999": 22.388146,
-          "max": 22.595236
+          "mean": 0.387728,
+          "p50": 0.003933,
+          "p95": 0.635700,
+          "p99": 22.064022,
+          "p999": 22.392106,
+          "max": 22.602436
         },
         "has_flow_throughput_range": true,
         "min_flow_throughput_mbps": 0.011200,
@@ -84,20 +84,20 @@
         "rx_bytes": 26600,
         "throughput_mbps": 0.070933,
         "delay_ms": {
-          "mean": 7.072512,
-          "p50": 0.074312,
+          "mean": 7.071859,
+          "p50": 0.071845,
           "p95": 22.252424,
           "p99": 22.586710,
           "p999": 22.661924,
           "max": 22.670281
         },
         "jitter_ms": {
-          "mean": 10.234913,
-          "p50": 0.007333,
-          "p95": 22.319116,
-          "p99": 22.540012,
-          "p999": 22.589714,
-          "max": 22.595236
+          "mean": 10.234508,
+          "p50": 0.005067,
+          "p95": 22.321996,
+          "p99": 22.546348,
+          "p999": 22.596827,
+          "max": 22.602436
         },
         "has_flow_throughput_range": true,
         "min_flow_throughput_mbps": 0.011200,
@@ -120,20 +120,20 @@
         "rx_bytes": 176400,
         "throughput_mbps": 0.470400,
         "delay_ms": {
-          "mean": 0.226546,
-          "p50": 0.073651,
-          "p95": 0.812625,
-          "p99": 1.268870,
-          "p999": 1.531192,
-          "max": 1.551775
+          "mean": 0.219718,
+          "p50": 0.073540,
+          "p95": 0.847308,
+          "p99": 1.269442,
+          "p999": 1.533092,
+          "max": 1.553575
         },
         "jitter_ms": {
-          "mean": 0.158881,
-          "p50": 0.007267,
-          "p95": 0.678947,
-          "p99": 0.836241,
-          "p999": 1.234646,
-          "max": 1.284867
+          "mean": 0.143180,
+          "p50": 0.006267,
+          "p95": 0.656027,
+          "p99": 0.832824,
+          "p999": 1.232653,
+          "max": 1.284067
         },
         "has_flow_throughput_range": true,
         "min_flow_throughput_mbps": 0.041067,
@@ -156,20 +156,20 @@
         "rx_bytes": 470400,
         "throughput_mbps": 1.254400,
         "delay_ms": {
-          "mean": 0.161666,
-          "p50": 0.072260,
-          "p95": 0.755720,
-          "p99": 1.115377,
-          "p999": 1.267988,
-          "max": 1.287754
+          "mean": 0.155932,
+          "p50": 0.072104,
+          "p95": 0.680869,
+          "p99": 0.924604,
+          "p999": 1.204786,
+          "max": 1.332689
         },
         "jitter_ms": {
-          "mean": 0.070119,
-          "p50": 0.003867,
-          "p95": 0.499607,
-          "p99": 0.687098,
-          "p999": 0.867747,
-          "max": 0.868133
+          "mean": 0.078487,
+          "p50": 0.003333,
+          "p95": 0.562693,
+          "p99": 0.674666,
+          "p999": 0.947794,
+          "max": 1.054333
         },
         "has_flow_throughput_range": true,
         "min_flow_throughput_mbps": 0.093333,

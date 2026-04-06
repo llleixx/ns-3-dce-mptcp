@@ -7,6 +7,7 @@
 #include "ns3/ipv4-address.h"
 #include "ns3/random-variable-stream.h"
 #include "ns3/data-rate.h"
+#include "ns3/seq-ts-size-header.h"
 #include "ns3/socket.h"
 #include "ns3/nstime.h"
 #include "ns3/traced-callback.h"
@@ -64,6 +65,7 @@ private:
   Address         m_local;
   TypeId          m_tid;
   uint32_t        m_packetSize;
+  uint8_t         m_ipTos {0};
   DataRate        m_steadyRate;
   DataRate        m_burstRate;
   double          m_burstProb;
@@ -84,6 +86,8 @@ private:
 
   TracedCallback<Ptr<const Packet> > m_txTrace;
   TracedCallback<Ptr<const Packet>, const Address &, const Address &> m_txTraceWithAddresses;
+  TracedCallback<Ptr<const Packet>, const Address &, const Address &, const SeqTsSizeHeader &>
+      m_txTraceWithSeqTsSize;
 
   bool m_running {false};
   bool m_hasConnected {false};
@@ -94,6 +98,8 @@ private:
   Socket::SocketErrno m_lastErrno {Socket::ERROR_NOTERROR};
   bool m_hasSentPayload {false};
   Time m_firstPayloadTxTime {Time::Min ()};
+  bool m_enableSeqTsSizeHeader {false};
+  uint32_t m_seq {0};
 };
 
 } // namespace ns3

@@ -210,9 +210,9 @@ main (int argc, char *argv[])
   uint16_t nrStartingMcsUl = 25;
   uint16_t nrStartingMcsDl = 25;
   std::string nrAmcModel = "ErrorModel";
-  double nrGnbTxPower = 30.0;
+  double nrGnbTxPower = 40.0;
   double nrUeTxPower = 23.0;
-  double nrCoreDelayMs = 1.0;
+  double nrCoreDelayMs = 0.0;
   double nrBackboneDelayMs = 0.5;
 
   CommandLine cmd;

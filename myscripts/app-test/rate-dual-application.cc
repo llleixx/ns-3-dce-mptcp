@@ -3,6 +3,7 @@
 #include "ns3/address.h"
 #include "ns3/inet-socket-address.h"
 #include "ns3/inet6-socket-address.h"
+#include "ns3/boolean.h"
 #include "ns3/packet.h"
 #include "ns3/packet-socket-address.h"
 #include "ns3/socket.h"
@@ -16,6 +17,9 @@
 #include "ns3/trace-source-accessor.h"
 
 #include <algorithm>
+#include <netinet/in.h>
+
+#include "../../model/linux/linux-socket-impl.h"
 
 namespace ns3 {
 
@@ -46,6 +50,11 @@ RateDualModeApplication::GetTypeId (void)
                    UintegerValue (1500), 
                    MakeUintegerAccessor (&RateDualModeApplication::m_packetSize),
                    MakeUintegerChecker<uint32_t> (1))
+    .AddAttribute ("IpTos",
+                   "IPv4 TOS byte to apply on the socket (DSCP is the upper 6 bits).",
+                   UintegerValue (0),
+                   MakeUintegerAccessor (&RateDualModeApplication::m_ipTos),
+                   MakeUintegerChecker<uint8_t> ())
     .AddAttribute ("SteadyRate",
                    "Data rate used in the steady state.",
                    DataRateValue (DataRate ("50.9Kbps")), 
@@ -88,12 +97,20 @@ RateDualModeApplication::GetTypeId (void)
                    TimeValue (Seconds (0.0)),
                    MakeTimeAccessor (&RateDualModeApplication::m_initialSendDelay),
                    MakeTimeChecker ())
+    .AddAttribute ("EnableSeqTsSizeHeader",
+                   "Enable use of SeqTsSizeHeader for sequence number and timestamp",
+                   BooleanValue (false),
+                   MakeBooleanAccessor (&RateDualModeApplication::m_enableSeqTsSizeHeader),
+                   MakeBooleanChecker ())
     .AddTraceSource ("Tx", "A new packet is sent",
                      MakeTraceSourceAccessor (&RateDualModeApplication::m_txTrace),
                      "ns3::Packet::TracedCallback")
     .AddTraceSource ("TxWithAddresses", "A new packet is sent",
                      MakeTraceSourceAccessor (&RateDualModeApplication::m_txTraceWithAddresses),
                      "ns3::Packet::TwoAddressTracedCallback")
+    .AddTraceSource ("TxWithSeqTsSize", "A new packet is created with SeqTsSizeHeader",
+                     MakeTraceSourceAccessor (&RateDualModeApplication::m_txTraceWithSeqTsSize),
+                     "ns3::PacketSink::SeqTsSizeCallback")
   ;
   return tid;
 }
@@ -239,6 +256,13 @@ RateDualModeApplication::StartApplication (void)
       if (ret == -1)
         {
           NS_FATAL_ERROR ("Failed to bind socket");
+        }
+
+      m_socket->SetIpTos (m_ipTos);
+      if (Ptr<LinuxSocketImpl> linuxSocket = DynamicCast<LinuxSocketImpl> (m_socket))
+        {
+          const uint8_t tos = m_ipTos;
+          linuxSocket->Setsockopt (SOL_IP, IP_TOS, &tos, sizeof (tos));
         }
 
       m_socket->SetConnectCallback (
@@ -448,7 +472,27 @@ RateDualModeApplication::TrySendPacket (bool resendOnly)
         {
           return;
         }
-      packet = Create<Packet> (m_packetSize);
+      if (m_enableSeqTsSizeHeader)
+        {
+          Address from;
+          Address to;
+          m_socket->GetSockName (from);
+          m_socket->GetPeerName (to);
+
+          SeqTsSizeHeader header;
+          header.SetSeq (m_seq++);
+          header.SetSize (m_packetSize);
+          NS_ABORT_IF (m_packetSize < header.GetSerializedSize ());
+
+          packet = Create<Packet> (m_packetSize - header.GetSerializedSize ());
+          // Trace before adding the header, like OnOff/BulkSend.
+          m_txTraceWithSeqTsSize (packet, from, to, header);
+          packet->AddHeader (header);
+        }
+      else
+        {
+          packet = Create<Packet> (m_packetSize);
+        }
     }
 
   const uint32_t size = packet->GetSize ();

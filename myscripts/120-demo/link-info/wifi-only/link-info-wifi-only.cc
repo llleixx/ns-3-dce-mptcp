@@ -242,9 +242,11 @@ main (int argc, char *argv[])
   double wifiTxPowerDbm = 23.0;
   std::string wifiPhyModel = "Spectrum";
   double wifiSpectrumMaxLossDb = 110.0;
+  std::string wifiSpectrumLossModel = "";
   bool wifiSpectrumUseFriisLoss = true;
+  std::string wifiRateManager = "Ideal";
   uint32_t wifiMuSchedulerStations = 0;
-  double wifiBackboneDelayMs = 1.0;
+  double wifiBackboneDelayMs = 0.5;
   bool wifiEnableOfdma = true;
   bool wifiEnableUlOfdma = true;
   bool wifiEnableBsrp = true;
@@ -298,10 +300,17 @@ main (int argc, char *argv[])
   cmd.AddValue ("wifiSpectrumMaxLossDb",
                 "Spectrum PHY only: skip receptions beyond this path loss",
                 wifiSpectrumMaxLossDb);
+  cmd.AddValue ("wifiSpectrumLossModel",
+                "Spectrum PHY only: propagation loss model: None, Friis, "
+                "ThreeGppIndoorOpenOffice, or ThreeGppIndoorMixedOffice",
+                wifiSpectrumLossModel);
   cmd.AddValue ("wifiSpectrumUseFriisLoss",
-                "Spectrum PHY only: add FriisPropagationLossModel "
-                "(disable to mimic the current 120-demo Spectrum channel setup)",
+                "Deprecated compatibility alias. If wifiSpectrumLossModel is not set, "
+                "true selects Friis and false selects ThreeGppIndoorMixedOffice",
                 wifiSpectrumUseFriisLoss);
+  cmd.AddValue ("wifiRateManager",
+                "Wi-Fi rate control manager: Ideal or MinstrelHt",
+                wifiRateManager);
   cmd.AddValue ("wifiMuSchedulerStations",
                 "Maximum stations granted an RU in one DL MU PPDU (0 means auto/all)",
                 wifiMuSchedulerStations);
@@ -323,6 +332,20 @@ main (int argc, char *argv[])
                    "wifiPhyModel must be Yans or Spectrum");
   NS_ABORT_MSG_IF (wifiPhyModel == "Yans",
                    "wifiPhyModel=Yans is not supported with this 802.11ax/OFDMA script");
+  if (wifiSpectrumLossModel.empty ())
+    {
+      wifiSpectrumLossModel =
+          wifiSpectrumUseFriisLoss ? "Friis" : "ThreeGppIndoorMixedOffice";
+    }
+  NS_ABORT_MSG_IF (wifiSpectrumLossModel != "None" &&
+                       wifiSpectrumLossModel != "Friis" &&
+                       wifiSpectrumLossModel != "ThreeGppIndoorOpenOffice" &&
+                       wifiSpectrumLossModel != "ThreeGppIndoorMixedOffice",
+                   "wifiSpectrumLossModel must be None, Friis, "
+                   "ThreeGppIndoorOpenOffice, or ThreeGppIndoorMixedOffice");
+  NS_ABORT_MSG_IF (wifiRateManager != "Ideal" &&
+                       wifiRateManager != "MinstrelHt",
+                   "wifiRateManager must be Ideal or MinstrelHt");
 
   SeqTsSizeHeader seqTsSizeHeader;
   const uint32_t appHeaderBytes = seqTsSizeHeader.GetSerializedSize ();
@@ -346,7 +369,8 @@ main (int argc, char *argv[])
             << wifiBackboneDelayMs
             << "ms spectrumMaxLossDb=" << wifiSpectrumMaxLossDb
             << " spectrumLoss="
-            << (wifiSpectrumUseFriisLoss ? "friis" : "none")
+            << wifiSpectrumLossModel
+            << " rateManager=" << wifiRateManager
             << " muStations="
             << (wifiMuSchedulerStations == 0 ? numClients : wifiMuSchedulerStations)
             << " dlOfdma="
@@ -435,7 +459,14 @@ main (int argc, char *argv[])
 
   WifiHelper wifi;
   wifi.SetStandard (WIFI_STANDARD_80211ax_5GHZ);
-  wifi.SetRemoteStationManager ("ns3::IdealWifiManager");
+  if (wifiRateManager == "Ideal")
+    {
+      wifi.SetRemoteStationManager ("ns3::IdealWifiManager");
+    }
+  else
+    {
+      wifi.SetRemoteStationManager ("ns3::MinstrelHtWifiManager");
+    }
 
   std::vector<NetDeviceContainer> apWifiDevs (numAps);
   std::vector<NetDeviceContainer> staWifiDevs (numAps);
@@ -456,7 +487,7 @@ main (int argc, char *argv[])
                       wifiTxPowerDbm,
                       wifiPhyModel,
                       wifiSpectrumMaxLossDb,
-                      wifiSpectrumUseFriisLoss,
+                      wifiSpectrumLossModel,
                       wifiMuSchedulerStations,
                       wifiEnableOfdma,
                       wifiEnableUlOfdma,
@@ -492,11 +523,29 @@ main (int argc, char *argv[])
             CreateObject<MultiModelSpectrumChannel> ();
         spectrumChannel->SetAttribute ("MaxLossDb",
                                        DoubleValue (wifiSpectrumMaxLossDb));
-        if (wifiSpectrumUseFriisLoss)
+        if (wifiSpectrumLossModel == "Friis")
           {
             Ptr<FriisPropagationLossModel> lossModel =
                 CreateObject<FriisPropagationLossModel> ();
             lossModel->SetFrequency (static_cast<double> (wifiFrequencyMhz) * 1e6);
+            spectrumChannel->AddPropagationLossModel (lossModel);
+          }
+        else if (wifiSpectrumLossModel == "ThreeGppIndoorOpenOffice" ||
+                 wifiSpectrumLossModel == "ThreeGppIndoorMixedOffice")
+          {
+            Ptr<ThreeGppIndoorOfficePropagationLossModel> lossModel =
+                CreateObject<ThreeGppIndoorOfficePropagationLossModel> ();
+            lossModel->SetFrequency (static_cast<double> (wifiFrequencyMhz) * 1e6);
+            if (wifiSpectrumLossModel == "ThreeGppIndoorMixedOffice")
+              {
+                lossModel->SetChannelConditionModel (
+                    CreateObject<ThreeGppIndoorMixedOfficeChannelConditionModel> ());
+              }
+            else
+              {
+                lossModel->SetChannelConditionModel (
+                    CreateObject<ThreeGppIndoorOpenOfficeChannelConditionModel> ());
+              }
             spectrumChannel->AddPropagationLossModel (lossModel);
           }
         spectrumChannel->SetPropagationDelayModel (

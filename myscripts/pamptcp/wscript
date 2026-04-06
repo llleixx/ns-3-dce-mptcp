@@ -28,6 +28,8 @@ def build(bld):
         target='bin/pamptcp',
         source=[
             'pamptcp.cc',
+            'pamptcp-profile.cc',
+            'pamptcp-report.cc',
             '../app-test/rate-dual-helper.cc',
             '../app-test/rate-dual-application.cc',
         ],

@@ -1,0 +1,27 @@
+# defaults: ThreeGppIndoorMixedOffice + Ideal
+# date = 2026-04-06 UTC
+LOAD=5
+[link-info][wifi] defaults: phy=Spectrum 802.11ax_5GHz width=160MHz freq=5250MHz heGi=800ns heMpduBuffer=256 beMaxAmpdu=6500631 txPower=23dBm apAnt=4x4 staAnt=2x2 backboneDelay=1ms spectrumMaxLossDb=110 spectrumLoss=ThreeGppIndoorMixedOffice rateManager=Ideal muStations=30 dlOfdma=on ulOfdma=on bsrp=on clientStep=10ms+100us/client packetSize=1400B(app) appHeader=20B netPayloadPerPacket=1380B offeredLoadPerClient=5.000Mbps
+[link-info][wifi] STA split: ap1=30
+[link-info][wifi] result clients=30 aps=1 grossThroughputMbps=136.214 netPayloadThroughputMbps=134.268 aggregateThroughputMbps=134.268 meanDelayMs=80.330 meanJitterMs=3.960 lossRatePct=5.277 activeFlows=30/30 grossMinFlowThroughputMbps=3.052 grossMaxFlowThroughputMbps=4.939 netMinFlowThroughputMbps=3.008 netMaxFlowThroughputMbps=4.869 grossRxBytes=102160800 netPayloadRxBytes=100701360
+EXIT=0
+LOAD=10
+[link-info][wifi] defaults: phy=Spectrum 802.11ax_5GHz width=160MHz freq=5250MHz heGi=800ns heMpduBuffer=256 beMaxAmpdu=6500631 txPower=23dBm apAnt=4x4 staAnt=2x2 backboneDelay=1ms spectrumMaxLossDb=110 spectrumLoss=ThreeGppIndoorMixedOffice rateManager=Ideal muStations=30 dlOfdma=on ulOfdma=on bsrp=on clientStep=10ms+100us/client packetSize=1400B(app) appHeader=20B netPayloadPerPacket=1380B offeredLoadPerClient=10.000Mbps
+[link-info][wifi] STA split: ap1=30
+[link-info][wifi] result clients=30 aps=1 grossThroughputMbps=250.716 netPayloadThroughputMbps=247.134 aggregateThroughputMbps=247.134 meanDelayMs=113.345 meanJitterMs=2.176 lossRatePct=11.830 activeFlows=30/30 grossMinFlowThroughputMbps=3.896 grossMaxFlowThroughputMbps=9.914 netMinFlowThroughputMbps=3.840 netMaxFlowThroughputMbps=9.772 grossRxBytes=188036800 netPayloadRxBytes=185350560
+EXIT=0
+LOAD=20
+[link-info][wifi] defaults: phy=Spectrum 802.11ax_5GHz width=160MHz freq=5250MHz heGi=800ns heMpduBuffer=256 beMaxAmpdu=6500631 txPower=23dBm apAnt=4x4 staAnt=2x2 backboneDelay=1ms spectrumMaxLossDb=110 spectrumLoss=ThreeGppIndoorMixedOffice rateManager=Ideal muStations=30 dlOfdma=on ulOfdma=on bsrp=on clientStep=10ms+100us/client packetSize=1400B(app) appHeader=20B netPayloadPerPacket=1380B offeredLoadPerClient=20.000Mbps
+[link-info][wifi] STA split: ap1=30
+[link-info][wifi] result clients=30 aps=1 grossThroughputMbps=445.103 netPayloadThroughputMbps=438.744 aggregateThroughputMbps=438.744 meanDelayMs=235.042 meanJitterMs=1.150 lossRatePct=17.003 activeFlows=30/30 grossMinFlowThroughputMbps=6.867 grossMaxFlowThroughputMbps=19.708 netMinFlowThroughputMbps=6.769 netMaxFlowThroughputMbps=19.427 grossRxBytes=333827200 netPayloadRxBytes=329058240
+EXIT=0
+LOAD=30
+[link-info][wifi] defaults: phy=Spectrum 802.11ax_5GHz width=160MHz freq=5250MHz heGi=800ns heMpduBuffer=256 beMaxAmpdu=6500631 txPower=23dBm apAnt=4x4 staAnt=2x2 backboneDelay=1ms spectrumMaxLossDb=110 spectrumLoss=ThreeGppIndoorMixedOffice rateManager=Ideal muStations=30 dlOfdma=on ulOfdma=on bsrp=on clientStep=10ms+100us/client packetSize=1400B(app) appHeader=20B netPayloadPerPacket=1380B offeredLoadPerClient=30.000Mbps
+[link-info][wifi] STA split: ap1=30
+[link-info][wifi] result clients=30 aps=1 grossThroughputMbps=558.217 netPayloadThroughputMbps=550.243 aggregateThroughputMbps=550.243 meanDelayMs=507.724 meanJitterMs=0.849 lossRatePct=21.800 activeFlows=30/30 grossMinFlowThroughputMbps=6.098 grossMaxFlowThroughputMbps=29.477 netMinFlowThroughputMbps=6.011 netMaxFlowThroughputMbps=29.055 grossRxBytes=418663000 netPayloadRxBytes=412682100
+EXIT=0
+LOAD=40
+[link-info][wifi] defaults: phy=Spectrum 802.11ax_5GHz width=160MHz freq=5250MHz heGi=800ns heMpduBuffer=256 beMaxAmpdu=6500631 txPower=23dBm apAnt=4x4 staAnt=2x2 backboneDelay=1ms spectrumMaxLossDb=110 spectrumLoss=ThreeGppIndoorMixedOffice rateManager=Ideal muStations=30 dlOfdma=on ulOfdma=on bsrp=on clientStep=10ms+100us/client packetSize=1400B(app) appHeader=20B netPayloadPerPacket=1380B offeredLoadPerClient=40.000Mbps
+[link-info][wifi] STA split: ap1=30
+[link-info][wifi] result clients=30 aps=1 grossThroughputMbps=609.616 netPayloadThroughputMbps=600.907 aggregateThroughputMbps=600.907 meanDelayMs=606.742 meanJitterMs=0.690 lossRatePct=21.223 activeFlows=27/30 grossMinFlowThroughputMbps=7.112 grossMaxFlowThroughputMbps=39.222 netMinFlowThroughputMbps=7.010 netMaxFlowThroughputMbps=38.662 grossRxBytes=457212000 netPayloadRxBytes=450680400
+EXIT=0
