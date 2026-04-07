@@ -4,12 +4,10 @@
 
 #include "ns3/applications-module.h"
 #include "ns3/core-module.h"
-#include "ns3/ethernet-header.h"
-#include "ns3/ethernet-trailer.h"
 #include "ns3/inet-socket-address.h"
 #include "ns3/internet-module.h"
-#include "ns3/llc-snap-header.h"
 #include "ns3/network-module.h"
+#include "ns3/ppp-header.h"
 #include "ns3/tcp-header.h"
 
 #include <algorithm>
@@ -872,32 +870,17 @@ BackboneTcpPayloadTracker::Rx (Ptr<const Packet> packet)
 
   Ptr<Packet> copy = packet->Copy ();
 
-  EthernetTrailer trailer;
-  copy->RemoveTrailer (trailer);
-
-  EthernetHeader ethernet (false);
-  copy->RemoveHeader (ethernet);
-
-  uint16_t protocol = ethernet.GetLengthType ();
-  if (protocol <= 1500)
+  // pamptcp's server backbone now uses PointToPointNetDevice. Its MacRx trace
+  // still carries the original PPP-framed packet, not an Ethernet frame.
+  PppHeader ppp;
+  if (copy->GetSize () < ppp.GetSerializedSize ())
     {
-      if (copy->GetSize () < protocol)
-        {
-          return;
-        }
-      const uint32_t padlen = copy->GetSize () - protocol;
-      if (padlen > 0)
-        {
-          copy->RemoveAtEnd (padlen);
-        }
-
-      LlcSnapHeader llc;
-      copy->RemoveHeader (llc);
-      protocol = llc.GetType ();
+      return;
     }
+  copy->RemoveHeader (ppp);
 
-  static const uint16_t kIpv4Protocol = 0x0800;
-  if (protocol != kIpv4Protocol)
+  static const uint16_t kIpv4Protocol = 0x0021;
+  if (ppp.GetProtocol () != kIpv4Protocol)
     {
       return;
     }

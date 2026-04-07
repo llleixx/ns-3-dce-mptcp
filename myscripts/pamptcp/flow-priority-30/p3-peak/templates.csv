@@ -1,4 +1,4 @@
 template_id,priority,appSteadyRate,appBurstRate,appTrafficModel,appSteadyTime,appBurstTime,appInitialSendDelay,appPacketSize
-prio1,1,12Kbps,12Kbps,duration,ns3::ConstantRandomVariable[Constant=1.0],ns3::ConstantRandomVariable[Constant=0.0],0.2,1400
-prio2,2,42Kbps,42Kbps,duration,ns3::ConstantRandomVariable[Constant=1.0],ns3::ConstantRandomVariable[Constant=0.0],0.2,1400
-prio3,3,25Mbps,25Mbps,duration,ns3::ConstantRandomVariable[Constant=1.0],ns3::ConstantRandomVariable[Constant=0.0],0.2,1400
+prio1,1,12Kbps,12Kbps,duration,ns3::ConstantRandomVariable[Constant=1.0],ns3::ConstantRandomVariable[Constant=0.0],0,1400
+prio2,2,42Kbps,42Kbps,duration,ns3::ConstantRandomVariable[Constant=1.0],ns3::ConstantRandomVariable[Constant=0.0],0,1400
+prio3,3,25Mbps,25Mbps,duration,ns3::ConstantRandomVariable[Constant=1.0],ns3::ConstantRandomVariable[Constant=0.0],0,1400

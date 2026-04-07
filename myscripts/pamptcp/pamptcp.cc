@@ -143,6 +143,21 @@ PrintUeRrcSummary (NetDeviceContainer ueDevs, const std::string &tag)
 }
 
 void
+SnapshotPacketSinkAcceptedSockets (Ptr<PacketSink> sink,
+                                   uint32_t *acceptedSockets,
+                                   bool *snapshotTaken)
+{
+  if (acceptedSockets == nullptr || snapshotTaken == nullptr)
+    {
+      return;
+    }
+
+  *snapshotTaken = true;
+  *acceptedSockets =
+      sink ? static_cast<uint32_t> (sink->GetAcceptedSockets ().size ()) : 0;
+}
+
+void
 ConfigureMptcp (LinuxStackHelper &stack,
                 NodeContainer nodes,
                 bool enableMptcp,
@@ -172,8 +187,8 @@ main (int argc, char *argv[])
   uint32_t numClients = 120;
   double simTime = 20.0;
   double sinkStart = 1.0;
-  double clientStart = 2.0;
-  double clientStartJitter = 0.3;
+  double clientStart = 1.1;
+  double clientStartJitter = 0.03;
   int64_t clientStartJitterStream = 1;
   uint16_t port = 5000;
   uint32_t numAps = 4;
@@ -182,7 +197,7 @@ main (int argc, char *argv[])
   uint32_t appPacketSize = 1500;
   std::string appTrafficModel = "duration";
   double appBurstProb = 0.0005;
-  double appInitialSendDelay = 0.2;
+  double appInitialSendDelay = 0;
   std::string appStateInterval =
       "ns3::NormalRandomVariable[Mean=1.0|Variance=0.01|Bound=2.0]";
   std::string appSteadyTime =
@@ -190,7 +205,6 @@ main (int argc, char *argv[])
   std::string appBurstTime =
       "ns3::ConstantRandomVariable[Constant=0.0001]";
   int64_t appStreamBase = 100;
-  uint32_t wifiAssocStaggerMs = 20;
   uint16_t wifiChannelWidthMhz = 160;
   uint16_t wifiFrequencyMhz = 5250;
   uint16_t wifiHeGuardIntervalNs = 800;
@@ -206,7 +220,7 @@ main (int argc, char *argv[])
   bool disableIpv6 = true;
   bool debugRoutes = false;
   bool verifyDualLinks = false;
-  bool checkBackboneDualTraffic = false;
+  bool checkBackboneDualTraffic = true;
   bool dumpSockets = false;
   uint32_t dumpSocketCount = 3;
   bool dumpMptcpConfig = false;
@@ -268,9 +282,6 @@ main (int argc, char *argv[])
   cmd.AddValue ("appStreamBase",
                 "First RNG stream index for RateDual application internals",
                 appStreamBase);
-  cmd.AddValue ("wifiAssocStaggerMs",
-                "Additional WaitBeaconTimeout per STA to stagger WiFi association (ms)",
-                wifiAssocStaggerMs);
   cmd.AddValue ("wifiChannelWidthMhz", "WiFi channel width in MHz", wifiChannelWidthMhz);
   cmd.AddValue ("wifiFrequencyMhz", "WiFi center frequency in MHz", wifiFrequencyMhz);
   cmd.AddValue ("wifiHeGuardIntervalNs",
@@ -675,7 +686,6 @@ main (int argc, char *argv[])
   wifi.SetRemoteStationManager ("ns3::IdealWifiManager");
 
   auto installWifi = [&wifi,
-                      wifiAssocStaggerMs,
                       wifiChannelWidthMhz,
                       wifiFrequencyMhz,
                       wifiHeGuardIntervalNs,
@@ -746,9 +756,7 @@ main (int argc, char *argv[])
         singleSta.Add (stas.Get (i));
         mac.SetType ("ns3::StaWifiMac",
                      "Ssid", SsidValue (ssid),
-                     "ActiveProbing", BooleanValue (false),
-                     "WaitBeaconTimeout",
-                     TimeValue (MilliSeconds (120 + i * wifiAssocStaggerMs)));
+                     "ActiveProbing", BooleanValue (false));
         staDev.Add (wifi.Install (phy, mac, singleSta));
       }
 
@@ -1049,6 +1057,24 @@ main (int argc, char *argv[])
   ApplicationContainer sinkApps = sinkHelper.Install (server);
   sinkApps.Start (Seconds (sinkStart));
   sinkApps.Stop (Seconds (simTime));
+  Ptr<PacketSink> sink = DynamicCast<PacketSink> (sinkApps.Get (0));
+  uint32_t acceptedSocketsSnapshot = 0;
+  bool acceptedSocketsSnapshotTaken = false;
+  if (sink)
+    {
+      // PacketSink clears m_socketList in StopApplication(), so capture the
+      // accepted socket count just before the app stops.
+      Time acceptedSocketsSnapshotTime = Seconds (simTime);
+      if (acceptedSocketsSnapshotTime > NanoSeconds (1))
+        {
+          acceptedSocketsSnapshotTime -= NanoSeconds (1);
+        }
+      Simulator::Schedule (acceptedSocketsSnapshotTime,
+                           &SnapshotPacketSinkAcceptedSockets,
+                           sink,
+                           &acceptedSocketsSnapshot,
+                           &acceptedSocketsSnapshotTaken);
+    }
   PacketSinkRxTracker sinkRxTracker;
   if (enablePriorityFlowMetrics)
     {
@@ -1199,12 +1225,13 @@ main (int argc, char *argv[])
   const double payloadActiveSeconds = std::max (0.0, simTime - payloadStartSeconds);
 
   // ---------------- PacketSink stats (like myscripts/app-test/app-test1.cc) ----------------
-  Ptr<PacketSink> sink = DynamicCast<PacketSink> (sinkApps.Get (0));
   if (sink)
     {
       const uint64_t totalBytes = sink->GetTotalRx ();
       const uint32_t acceptedSockets =
-          static_cast<uint32_t> (sink->GetAcceptedSockets ().size ());
+          acceptedSocketsSnapshotTaken
+              ? acceptedSocketsSnapshot
+              : static_cast<uint32_t> (sink->GetAcceptedSockets ().size ());
       const double throughputMbps =
           (payloadActiveSeconds > 0.0)
               ? (totalBytes * 8.0 / payloadActiveSeconds / 1e6)
