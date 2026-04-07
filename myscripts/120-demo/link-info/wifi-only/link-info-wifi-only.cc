@@ -228,12 +228,11 @@ main (int argc, char *argv[])
   double simTime = 8.0;
   double sinkStart = 1.0;
   double clientStart = 2.0;
-  double clientStartStepMs = 10.0;
-  double clientStartSkewUs = 100.0;
+  double clientStartStepMs = 3.0;
+  double clientStartSkewUs = 0.0;
   double offeredLoadMbpsPerClient = 300.0;
   uint32_t packetSize = 1400;
   uint16_t portBase = 5000;
-  uint32_t wifiAssocStaggerMs = 20;
   uint16_t wifiChannelWidthMhz = 160;
   uint16_t wifiFrequencyMhz = 5250;
   uint16_t wifiHeGuardIntervalNs = 800;
@@ -275,9 +274,6 @@ main (int argc, char *argv[])
                 "but excludes UDP/IP/MAC/PHY headers",
                 packetSize);
   cmd.AddValue ("portBase", "First UDP port used by the sinks", portBase);
-  cmd.AddValue ("wifiAssocStaggerMs",
-                "Additional WaitBeaconTimeout per STA in ms",
-                wifiAssocStaggerMs);
   cmd.AddValue ("wifiChannelWidthMhz",
                 "Wi-Fi channel width in MHz",
                 wifiChannelWidthMhz);
@@ -478,7 +474,6 @@ main (int argc, char *argv[])
   wifiSubnetBases.reserve (numAps);
 
   auto installWifi = [&wifi,
-                      wifiAssocStaggerMs,
                       wifiChannelWidthMhz,
                       wifiFrequencyMhz,
                       wifiHeGuardIntervalNs,
@@ -579,9 +574,7 @@ main (int argc, char *argv[])
                          "Ssid",
                          SsidValue (ssid),
                          "ActiveProbing",
-                         BooleanValue (false),
-                         "WaitBeaconTimeout",
-                         TimeValue (MilliSeconds (120 + i * wifiAssocStaggerMs)));
+                         BooleanValue (false));
             staDev.Add (wifi.Install (phy, mac, singleSta));
           }
       }
@@ -621,9 +614,7 @@ main (int argc, char *argv[])
                          "Ssid",
                          SsidValue (ssid),
                          "ActiveProbing",
-                         BooleanValue (false),
-                         "WaitBeaconTimeout",
-                         TimeValue (MilliSeconds (120 + i * wifiAssocStaggerMs)));
+                         BooleanValue (false));
             staDev.Add (wifi.Install (phy, mac, singleSta));
           }
       }

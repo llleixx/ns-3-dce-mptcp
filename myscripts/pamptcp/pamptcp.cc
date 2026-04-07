@@ -47,6 +47,13 @@ NS_LOG_COMPONENT_DEFINE ("DceNrWifiMptcp120Demo");
 namespace
 {
 
+enum class PathMode
+{
+  DUAL,
+  WIFI_ONLY,
+  NR_ONLY
+};
+
 std::string
 ToString (Ipv4Address address)
 {
@@ -84,6 +91,12 @@ void
 RunIpAt (Ptr<Node> node, double whenSeconds, const std::string &command)
 {
   LinuxStackHelper::RunIp (node, Seconds (whenSeconds), command);
+}
+
+Time
+MillisecondsDouble (double valueMs)
+{
+  return Seconds (valueMs / 1000.0);
 }
 
 void
@@ -157,6 +170,38 @@ SnapshotPacketSinkAcceptedSockets (Ptr<PacketSink> sink,
       sink ? static_cast<uint32_t> (sink->GetAcceptedSockets ().size ()) : 0;
 }
 
+PathMode
+ParsePathMode (const std::string &value)
+{
+  if (value == "dual")
+    {
+      return PathMode::DUAL;
+    }
+  if (value == "wifi-only")
+    {
+      return PathMode::WIFI_ONLY;
+    }
+  if (value == "nr-only")
+    {
+      return PathMode::NR_ONLY;
+    }
+
+  NS_ABORT_MSG ("Unsupported pathMode=\"" << value
+                                          << "\"; use dual, wifi-only, or nr-only");
+}
+
+bool
+PathModeUsesNr (PathMode mode)
+{
+  return mode != PathMode::WIFI_ONLY;
+}
+
+bool
+PathModeUsesWifi (PathMode mode)
+{
+  return mode != PathMode::NR_ONLY;
+}
+
 void
 ConfigureMptcp (LinuxStackHelper &stack,
                 NodeContainer nodes,
@@ -166,6 +211,7 @@ ConfigureMptcp (LinuxStackHelper &stack,
 {
   if (!enableMptcp)
     {
+      stack.SysctlSet (nodes, ".net.mptcp.mptcp_enabled", "0");
       return;
     }
 
@@ -215,6 +261,7 @@ main (int argc, char *argv[])
   bool wifiEnableUlOfdma = true;
   bool wifiEnableBsrp = true;
   std::string mptcpScheduler = "default";
+  std::string pathMode = "dual";
   bool enableMptcp = true;
   bool enableMptcpDebug = false;
   bool disableIpv6 = true;
@@ -304,6 +351,9 @@ main (int argc, char *argv[])
                 "Enable WiFi BSRP for UL OFDMA scheduling",
                 wifiEnableBsrp);
   cmd.AddValue ("mptcpScheduler", "MPTCP scheduler (e.g. default, roundrobin, redundant, blest, pablest)", mptcpScheduler);
+  cmd.AddValue ("pathMode",
+                "Path mode: dual, wifi-only, or nr-only",
+                pathMode);
   cmd.AddValue ("enableMptcp", "Enable MPTCP fullmesh on client/server", enableMptcp);
   cmd.AddValue ("enableMptcpDebug", "Enable MPTCP debug sysctl (very verbose)", enableMptcpDebug);
   cmd.AddValue ("disableIpv6", "Disable IPv6 via sysctl (reduces multicast control traffic)", disableIpv6);
@@ -356,6 +406,11 @@ main (int argc, char *argv[])
                 "One-way PGW-to-server wired delay in ms",
                 nrBackboneDelayMs);
   cmd.Parse (argc, argv);
+
+  const PathMode selectedPathMode = ParsePathMode (pathMode);
+  const bool useNrPath = PathModeUsesNr (selectedPathMode);
+  const bool useWifiPath = PathModeUsesWifi (selectedPathMode);
+  const bool effectiveEnableMptcp = enableMptcp && useNrPath && useWifiPath;
 
   const TrafficAppConfig defaultTrafficApp =
       BuildDefaultTrafficAppConfig (appSteadyRate,
@@ -417,6 +472,7 @@ main (int argc, char *argv[])
       summaryReportPath =
           BuildSummaryReportPath (trafficProfileDir,
                                   mptcpScheduler,
+                                  pathMode,
                                   clientStartJitterStream);
       EmitReportLine ("[120-demo] Summary report file: " + summaryReportPath,
                       summaryReportStream);
@@ -433,6 +489,25 @@ main (int argc, char *argv[])
   jsonReport.statsStartSeconds = statsStart;
   jsonReport.statsStopSeconds = statsStop;
   jsonReport.clientStartJitterStream = clientStartJitterStream;
+
+  {
+    std::ostringstream oss;
+    oss << "[120-demo] Path mode: " << pathMode
+        << " useNr=" << (useNrPath ? "yes" : "no")
+        << " useWifi=" << (useWifiPath ? "yes" : "no")
+        << " requestedMptcp=" << (enableMptcp ? "yes" : "no")
+        << " effectiveMptcp=" << (effectiveEnableMptcp ? "yes" : "no");
+    EmitReportLine (oss.str (), summaryReportStream);
+  }
+
+  if (enableMptcp && !effectiveEnableMptcp)
+    {
+      const std::string warning =
+          "[120-demo] Single-path mode disables MPTCP subflow setup to isolate"
+          " the selected access link.";
+      EmitReportLine (warning, summaryReportStream);
+      jsonReport.warnings.push_back (warning);
+    }
 
   const uint16_t nrMaxMcsIndex = nrUseEesmT2 ? 27 : 28;
   if (nrStartingMcsUl > nrMaxMcsIndex)
@@ -648,10 +723,10 @@ main (int argc, char *argv[])
 
   ConfigureMptcp (stack,
                   NodeContainer (ueNodes, serverNode),
-                  enableMptcp,
+                  effectiveEnableMptcp,
                   enableMptcpDebug,
                   mptcpScheduler);
-  if (enableMptcp && dumpMptcpConfig && ueNodes.GetN () > 0)
+  if (effectiveEnableMptcp && dumpMptcpConfig && ueNodes.GetN () > 0)
     {
       LinuxStackHelper::SysctlGet (ueNodes.Get (0),
                                    Seconds (0.2),
@@ -895,7 +970,7 @@ main (int argc, char *argv[])
   PointToPointHelper backboneP2p;
   backboneP2p.SetDeviceAttribute ("DataRate", StringValue ("10Gbps"));
   backboneP2p.SetChannelAttribute ("Delay",
-                                   TimeValue (MilliSeconds (nrBackboneDelayMs)));
+                                   TimeValue (MillisecondsDouble (nrBackboneDelayMs)));
 
   Ipv4AddressHelper backboneAddr;
   NetDeviceContainer serverPgwDevs = backboneP2p.Install (server, pgw);
@@ -999,22 +1074,24 @@ main (int argc, char *argv[])
       Ptr<Node> ue = ueNodes.Get (i);
       const Ipv4Address ueNrIp = ueNrIf.GetAddress (i);
       const std::string ueNrIfName = GetIfName (ue, ueNrIp);
+      const auto wifiIt = wifiCfgByNodeId.find (ue->GetId ());
+      NS_ABORT_MSG_IF (wifiIt == wifiCfgByNodeId.end (),
+                       "Missing WiFi config for UE");
+      const WifiClientConfig &wifiCfg = wifiIt->second;
+      const std::string ueWifiIfName = GetIfName (ue, wifiCfg.addr);
 
       const double base = 0.50 + (i * 0.002); // spread out DCE ip calls a bit
 
-      // Main default route.
-      RunIpAt (ue, base,
-               "route add default via " + ToString (ueGateway) + " dev " +
-                   ueNrIfName);
-
-      if (enableMptcp)
+      if (useNrPath)
         {
-          const auto wifiIt = wifiCfgByNodeId.find (ue->GetId ());
-          NS_ABORT_MSG_IF (wifiIt == wifiCfgByNodeId.end (),
-                           "Missing WiFi config for UE");
-          const WifiClientConfig &wifiCfg = wifiIt->second;
-          const std::string ueWifiIfName = GetIfName (ue, wifiCfg.addr);
+          // Main default route.
+          RunIpAt (ue, base,
+                   "route add default via " + ToString (ueGateway) + " dev " +
+                       ueNrIfName);
+        }
 
+      if (effectiveEnableMptcp)
+        {
           // WiFi policy table (2).
           RunIpAt (ue, base + 0.01,
                    "rule add from " + ToString (wifiCfg.addr) + " table 2");
@@ -1024,6 +1101,12 @@ main (int argc, char *argv[])
           RunIpAt (ue, base + 0.03,
                    "route add default via " + ToString (wifiCfg.gateway) +
                        " dev " + ueWifiIfName + " table 2");
+        }
+      else if (useWifiPath && !useNrPath)
+        {
+          RunIpAt (ue, base + 0.01,
+                   "route add default via " + ToString (wifiCfg.gateway) +
+                       " dev " + ueWifiIfName);
         }
     }
 
@@ -1107,6 +1190,21 @@ main (int argc, char *argv[])
       const uint8_t ipTos = DscpToIpTos (PriorityToDscp (client.app.priority));
       RateDualHelper traffic ("ns3::LinuxTcpSocketFactory",
                               InetSocketAddress (serverBackboneIp, port));
+      if (selectedPathMode == PathMode::NR_ONLY)
+        {
+          traffic.SetAttribute ("Local",
+                                AddressValue (InetSocketAddress (ueNrIf.GetAddress (i),
+                                                                 0)));
+        }
+      else if (selectedPathMode == PathMode::WIFI_ONLY)
+        {
+          const auto wifiIt = wifiCfgByNodeId.find (ueNodes.Get (i)->GetId ());
+          NS_ABORT_MSG_IF (wifiIt == wifiCfgByNodeId.end (),
+                           "Missing WiFi config for UE while binding client app");
+          traffic.SetAttribute (
+              "Local",
+              AddressValue (InetSocketAddress (wifiIt->second.addr, 0)));
+        }
       traffic.SetAttribute ("PacketSize", UintegerValue (client.app.appPacketSize));
       traffic.SetAttribute ("IpTos", UintegerValue (ipTos));
       traffic.SetAttribute ("SteadyRate",

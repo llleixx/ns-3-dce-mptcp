@@ -413,7 +413,7 @@ main (int argc, char *argv[])
   PointToPointHelper p2p;
   p2p.SetDeviceAttribute ("DataRate", StringValue ("10Gbps"));
   p2p.SetChannelAttribute ("Delay",
-                           TimeValue (MilliSeconds (nrBackboneDelayMs)));
+                           TimeValue (Seconds (nrBackboneDelayMs / 1000.0)));
 
   NetDeviceContainer backboneDevs = p2p.Install (server, pgw);
   Ipv4AddressHelper backboneAddr;
