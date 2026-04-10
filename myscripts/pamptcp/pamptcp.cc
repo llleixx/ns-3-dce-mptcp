@@ -473,7 +473,8 @@ main (int argc, char *argv[])
           BuildSummaryReportPath (trafficProfileDir,
                                   mptcpScheduler,
                                   pathMode,
-                                  clientStartJitterStream);
+                                  clientStartJitterStream,
+                                  simTime);
       EmitReportLine ("[120-demo] Summary report file: " + summaryReportPath,
                       summaryReportStream);
     }

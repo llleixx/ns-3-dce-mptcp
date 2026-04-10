@@ -106,8 +106,16 @@
   --trafficProfileDir=myscripts/pamptcp/flow-priority-30/avg-only \
   --numAps=1 \
   --simTime=6 \
-  --sinkStart=1 \
-  --clientStart=2 \
+  --mptcpScheduler=default
+```
+
+```bash
+./run-myscript.sh --mode opt \
+  myscripts/pamptcp/pamptcp.cc \
+  -- \
+  --trafficProfileDir=myscripts/pamptcp/flow-priority-30/p3-peak \
+  --numAps=1 \
+  --simTime=6 \
   --mptcpScheduler=default
 ```
 

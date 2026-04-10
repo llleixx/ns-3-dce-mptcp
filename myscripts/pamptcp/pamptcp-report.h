@@ -29,7 +29,8 @@ namespace pamptcp {
 std::string BuildSummaryReportPath (const std::string &directory,
                                     const std::string &mptcpScheduler,
                                     const std::string &pathMode,
-                                    int64_t clientStartJitterStream);
+                                    int64_t clientStartJitterStream,
+                                    double simTimeSeconds);
 
 std::vector<uint32_t> ParseNodeIdList (const std::string &csvList);
 

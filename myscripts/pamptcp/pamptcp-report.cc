@@ -45,6 +45,37 @@ SanitizeFilenameComponent (std::string text)
   return text;
 }
 
+std::string
+FormatDurationFilenameComponent (double seconds)
+{
+  std::ostringstream oss;
+  oss << std::fixed << std::setprecision (6) << seconds;
+
+  std::string text = oss.str ();
+  while (!text.empty () && text.back () == '0')
+    {
+      text.pop_back ();
+    }
+  if (!text.empty () && text.back () == '.')
+    {
+      text.pop_back ();
+    }
+  if (text.empty () || text == "-0")
+    {
+      text = "0";
+    }
+
+  for (char &c : text)
+    {
+      if (c == '.')
+        {
+          c = 'p';
+        }
+    }
+
+  return text + "s";
+}
+
 double
 ComputeMean (const std::vector<double> &samples)
 {
@@ -398,17 +429,18 @@ std::string
 BuildSummaryReportPath (const std::string &directory,
                         const std::string &mptcpScheduler,
                         const std::string &pathMode,
-                        int64_t clientStartJitterStream)
+                        int64_t clientStartJitterStream,
+                        double simTimeSeconds)
 {
   std::ostringstream oss;
-  oss << "pamptcp-summary-"
-      << SanitizeFilenameComponent (mptcpScheduler);
+  oss << SanitizeFilenameComponent (mptcpScheduler);
   if (pathMode != "dual")
     {
       oss << "-" << SanitizeFilenameComponent (pathMode);
     }
   oss
       << "-stream" << clientStartJitterStream
+      << "-" << FormatDurationFilenameComponent (simTimeSeconds)
       << ".json";
   return JoinPath (directory, oss.str ());
 }
