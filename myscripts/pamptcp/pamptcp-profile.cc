@@ -312,14 +312,6 @@ ResolveTrafficAppConfig (const CsvNamedRow &row,
       config.appBurstTime = burstTimeText;
     }
 
-  const std::string packetSizeText =
-      GetAnyCsvValueOrEmpty (row, {"appPacketSize", "packet_size"});
-  if (!packetSizeText.empty ())
-    {
-      config.appPacketSize =
-          ParseUint32 (packetSizeText, "appPacketSize", path, row.lineNumber);
-    }
-
   return config;
 }
 
@@ -515,8 +507,7 @@ BuildDefaultTrafficAppConfig (const std::string &defaultSteadyRateText,
                               double defaultInitialSendDelaySeconds,
                               const std::string &defaultStateInterval,
                               const std::string &defaultSteadyTime,
-                              const std::string &defaultBurstTime,
-                              uint32_t defaultPacketSize)
+                              const std::string &defaultBurstTime)
 {
   TrafficAppConfig config;
   config.appSteadyRateText = defaultSteadyRateText;
@@ -529,7 +520,6 @@ BuildDefaultTrafficAppConfig (const std::string &defaultSteadyRateText,
   config.appStateInterval = defaultStateInterval;
   config.appSteadyTime = defaultSteadyTime;
   config.appBurstTime = defaultBurstTime;
-  config.appPacketSize = defaultPacketSize;
   return config;
 }
 

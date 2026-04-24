@@ -52,14 +52,18 @@ struct PriorityMetricsEntry
   uint32_t priority = 0;
   uint32_t expectedFlows = 0;
   uint32_t activeFlows = 0;
+  uint32_t delayActiveFlows = 0;
   uint64_t rxBytes = 0;
   uint64_t rxPackets = 0;
+  uint64_t delayRxPackets = 0;
   double throughputMbps = 0.0;
   DistributionSummary delay;
+  DistributionSummary overallDelay;
   DistributionSummary jitter;
   bool hasFlowThroughputRange = false;
   double minFlowThroughputMbps = 0.0;
   double maxFlowThroughputMbps = 0.0;
+  bool delayExcludesPeakFlows = true;
   bool usesPrioritySpecificDelaySla = false;
   double delaySlaThresholdMs = 0.0;
   uint64_t delaySlaViolationPackets = 0;
@@ -210,13 +214,21 @@ private:
 
   struct PriorityAggregateStats
   {
+    struct DelayAggregateStats
+    {
+      uint32_t activeFlows = 0;
+      uint64_t rxPackets = 0;
+      uint64_t delaySlaViolationPackets = 0;
+      std::vector<double> delaySamplesMs;
+      std::vector<double> jitterSamplesMs;
+    };
+
     uint32_t expectedFlows = 0;
     uint32_t activeFlows = 0;
     uint64_t rxBytes = 0;
     uint64_t rxPackets = 0;
-    uint64_t delaySlaViolationPackets = 0;
-    std::vector<double> delaySamplesMs;
-    std::vector<double> jitterSamplesMs;
+    DelayAggregateStats steadyDelay;
+    DelayAggregateStats overallDelay;
     double minFlowThroughputMbps = std::numeric_limits<double>::max ();
     double maxFlowThroughputMbps = 0.0;
   };

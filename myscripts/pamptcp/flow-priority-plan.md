@@ -47,15 +47,17 @@
 
 如果运行成本允许，建议每个组合至少重复 3 到 5 次，只改变 `clientStartJitterStream`，避免把单次启动时序当成稳定结论。
 
+当前建议把 `clientStartJitter` 固定到 `1.0s`。原因是业务发送周期本身就是 `1s`，把启动抖动拉到同一量级后，能明显打散“首次 Wi-Fi 路径使用 + ARP + 子流建立”的同步冲击，避免把启动伪像误当成 scheduler 行为。
+
 ## 4. 统计窗口
 
-建议仿真总时长先固定为 `6.0s`，统计窗口为 `[3.0s, 6.0s]`。
+建议仿真总时长先固定为 `10.0s`，统计窗口为 `[4.0s, 10.0s]`。
 
 理由：
 
-1. `sinkStart=1.0s`、`clientStart=2.0s` 时，前 1 秒主要是建链和初始拥塞控制阶段，不适合作为稳定态结论。
-2. 后 3 秒足够覆盖多个 RTT 和调度周期，同时不会把仿真拖得过长。
-3. 当前实现允许命令行覆盖 `statsStart` / `statsStop`，如果后续发现 6 秒仍不够稳定，可以直接延长。
+1. `clientStartJitter=1.0s` 时，各 UE 的真实启动时间会被拉散到一个完整发送周期内；如果总时长仍只有 `6s`，统计很容易继续混入启动期。
+2. 把统计窗口放到 `4s` 之后，基本可以避开 Wi-Fi 首次 ARP、MPTCP 子流建立和首批 RTT 样本污染。
+3. `4s -> 10s` 这段窗口已经足够长，能覆盖多个发送周期和调度轮次，同时比 `12s` 更节省仿真时间。
 
 ## 5. 核心指标
 
@@ -105,7 +107,10 @@
   -- \
   --trafficProfileDir=myscripts/pamptcp/flow-priority-30/avg-only \
   --numAps=1 \
-  --simTime=6 \
+  --simTime=10 \
+  --statsStart=4 \
+  --statsStop=10 \
+  --clientStartJitter=1.0 \
   --mptcpScheduler=default
 ```
 
@@ -115,7 +120,10 @@
   -- \
   --trafficProfileDir=myscripts/pamptcp/flow-priority-30/p3-peak \
   --numAps=1 \
-  --simTime=6 \
+  --simTime=10 \
+  --statsStart=4 \
+  --statsStop=10 \
+  --clientStartJitter=1.0 \
   --mptcpScheduler=default
 ```
 

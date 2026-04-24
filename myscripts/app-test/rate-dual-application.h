@@ -57,14 +57,16 @@ private:
   void AdvanceTrafficState (void);
   void UpdateLegacyState (void);
   void SendPacket (void);
+  void SendBurst (void);
+  void DrainPendingPackets (void);
   void ScheduleNextTx (void);
+  uint64_t ComputeBurstBytesForCurrentRate (void);
   void TrySendPacket (bool resendOnly);
   void RecordSuccessfulSend (Ptr<const Packet> packet);
 
   Address         m_peer;
   Address         m_local;
   TypeId          m_tid;
-  uint32_t        m_packetSize;
   uint8_t         m_ipTos {0};
   DataRate        m_steadyRate;
   DataRate        m_burstRate;
@@ -100,6 +102,8 @@ private:
   Time m_firstPayloadTxTime {Time::Min ()};
   bool m_enableSeqTsSizeHeader {false};
   uint32_t m_seq {0};
+  uint64_t m_pendingBurstBytes {0};
+  double m_sendCreditBytes {0.0};
 };
 
 } // namespace ns3

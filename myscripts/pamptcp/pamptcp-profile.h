@@ -37,7 +37,6 @@ struct TrafficAppConfig
   std::string appStateInterval;
   std::string appSteadyTime;
   std::string appBurstTime;
-  uint32_t appPacketSize = 1500;
 };
 
 struct TrafficTemplateConfig
@@ -68,8 +67,7 @@ TrafficAppConfig BuildDefaultTrafficAppConfig (const std::string &defaultSteadyR
                                                double defaultInitialSendDelaySeconds,
                                                const std::string &defaultStateInterval,
                                                const std::string &defaultSteadyTime,
-                                               const std::string &defaultBurstTime,
-                                               uint32_t defaultPacketSize);
+                                               const std::string &defaultBurstTime);
 
 ClientTrafficConfig MakeClientTrafficConfig (uint32_t clientIndex,
                                              const std::string &templateId,

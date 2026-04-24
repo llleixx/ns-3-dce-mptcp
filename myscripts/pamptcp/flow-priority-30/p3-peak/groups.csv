@@ -1,4 +1,4 @@
 template_id,count
-prio1,6
-prio2,11
-prio3,13
+prio1_steady,6
+prio2_steady,11
+prio3_peak,13

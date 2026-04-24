@@ -17,6 +17,8 @@
 #include "ns3/trace-source-accessor.h"
 
 #include <algorithm>
+#include <cmath>
+#include <limits>
 #include <netinet/in.h>
 
 #include "../../model/linux/linux-socket-impl.h"
@@ -46,10 +48,6 @@ RateDualModeApplication::GetTypeId (void)
                    TypeIdValue (TcpSocketFactory::GetTypeId ()),
                    MakeTypeIdAccessor (&RateDualModeApplication::m_tid),
                    MakeTypeIdChecker ())
-    .AddAttribute ("PacketSize", "The size of packets sent in payload",
-                   UintegerValue (1500), 
-                   MakeUintegerAccessor (&RateDualModeApplication::m_packetSize),
-                   MakeUintegerChecker<uint32_t> (1))
     .AddAttribute ("IpTos",
                    "IPv4 TOS byte to apply on the socket (DSCP is the upper 6 bits).",
                    UintegerValue (0),
@@ -182,6 +180,8 @@ RateDualModeApplication::CancelEvents (void)
   Simulator::Cancel (m_sendEvent);
   Simulator::Cancel (m_stateEvent);
   m_unsentPacket = 0;
+  m_pendingBurstBytes = 0;
+  m_sendCreditBytes = 0.0;
 }
 
 Time
@@ -366,11 +366,15 @@ void
 RateDualModeApplication::HandleSendReady (Ptr<Socket> socket, uint32_t txSpace)
 {
   (void) txSpace;
-  if (!m_running || !m_connected || socket != m_socket || !m_unsentPacket)
+  if (!m_running || !m_connected || socket != m_socket)
     {
       return;
     }
-  TrySendPacket (true);
+  if (!m_unsentPacket && m_pendingBurstBytes == 0)
+    {
+      return;
+    }
+  DrainPendingPackets ();
 }
 
 void
@@ -441,8 +445,43 @@ RateDualModeApplication::SendPacket (void)
       return;
     }
 
-  TrySendPacket (false);
+  SendBurst ();
   ScheduleNextTx ();
+}
+
+void
+RateDualModeApplication::SendBurst (void)
+{
+  if (!m_running || !m_connected || !m_socket)
+    {
+      return;
+    }
+
+  m_pendingBurstBytes += ComputeBurstBytesForCurrentRate ();
+  DrainPendingPackets ();
+}
+
+void
+RateDualModeApplication::DrainPendingPackets (void)
+{
+  if (!m_running || !m_connected || !m_socket)
+    {
+      return;
+    }
+
+  if (m_unsentPacket)
+    {
+      TrySendPacket (true);
+      if (m_unsentPacket)
+        {
+          return;
+        }
+    }
+
+  while (m_pendingBurstBytes > 0 && !m_unsentPacket)
+    {
+      TrySendPacket (false);
+    }
 }
 
 void
@@ -453,8 +492,21 @@ RateDualModeApplication::ScheduleNextTx (void)
       return;
     }
 
-  const Time nextTime = Seconds (m_packetSize * 8.0 / m_currentRate.GetBitRate ());
-  m_sendEvent = Simulator::Schedule (nextTime, &RateDualModeApplication::SendPacket, this);
+  m_sendEvent = Simulator::Schedule (Seconds (1.0),
+                                     &RateDualModeApplication::SendPacket,
+                                     this);
+}
+
+uint64_t
+RateDualModeApplication::ComputeBurstBytesForCurrentRate (void)
+{
+  const double generatedBytes =
+      static_cast<double> (m_currentRate.GetBitRate ()) / 8.0;
+  m_sendCreditBytes += generatedBytes;
+
+  const uint64_t bytes = static_cast<uint64_t> (std::floor (m_sendCreditBytes));
+  m_sendCreditBytes -= static_cast<double> (bytes);
+  return bytes;
 }
 
 void
@@ -472,6 +524,13 @@ RateDualModeApplication::TrySendPacket (bool resendOnly)
         {
           return;
         }
+      NS_ABORT_MSG_IF (m_pendingBurstBytes == 0,
+                       "TrySendPacket(false) requires positive pending burst bytes");
+
+      const uint32_t nextBytes =
+          static_cast<uint32_t> (std::min<uint64_t> (
+              m_pendingBurstBytes,
+              static_cast<uint64_t> (std::numeric_limits<uint32_t>::max ())));
       if (m_enableSeqTsSizeHeader)
         {
           Address from;
@@ -481,17 +540,17 @@ RateDualModeApplication::TrySendPacket (bool resendOnly)
 
           SeqTsSizeHeader header;
           header.SetSeq (m_seq++);
-          header.SetSize (m_packetSize);
-          NS_ABORT_IF (m_packetSize < header.GetSerializedSize ());
+          header.SetSize (nextBytes);
+          NS_ABORT_IF (nextBytes < header.GetSerializedSize ());
 
-          packet = Create<Packet> (m_packetSize - header.GetSerializedSize ());
+          packet = Create<Packet> (nextBytes - header.GetSerializedSize ());
           // Trace before adding the header, like OnOff/BulkSend.
           m_txTraceWithSeqTsSize (packet, from, to, header);
           packet->AddHeader (header);
         }
       else
         {
-          packet = Create<Packet> (m_packetSize);
+          packet = Create<Packet> (nextBytes);
         }
     }
 
@@ -501,6 +560,7 @@ RateDualModeApplication::TrySendPacket (bool resendOnly)
     {
       m_lastErrno = Socket::ERROR_NOTERROR;
       m_unsentPacket = 0;
+      m_pendingBurstBytes -= size;
       RecordSuccessfulSend (packet);
       return;
     }
@@ -518,6 +578,7 @@ RateDualModeApplication::TrySendPacket (bool resendOnly)
       Ptr<Packet> sent = packet->CreateFragment (0, actual);
       Ptr<Packet> unsent = packet->CreateFragment (actual, size - static_cast<uint32_t> (actual));
       m_unsentPacket = unsent;
+      m_pendingBurstBytes -= static_cast<uint32_t> (actual);
       RecordSuccessfulSend (sent);
       return;
     }

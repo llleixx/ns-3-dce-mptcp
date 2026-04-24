@@ -21,6 +21,14 @@ namespace ns3 {
 namespace pamptcp {
 namespace {
 
+bool
+TemplateIdLooksPeakLike (std::string templateId)
+{
+  std::transform (templateId.begin (), templateId.end (), templateId.begin (),
+                  [] (unsigned char c) { return static_cast<char> (std::tolower (c)); });
+  return templateId.find ("peak") != std::string::npos;
+}
+
 std::string
 JoinPath (const std::string &directory, const std::string &filename)
 {
@@ -263,7 +271,11 @@ WritePriorityMetricsEntryJson (std::ostream &os,
   WriteIndent (os, indentLevel + 1);
   os << "\"active_flows\": " << entry.activeFlows << ",\n";
   WriteIndent (os, indentLevel + 1);
+  os << "\"delay_active_flows\": " << entry.delayActiveFlows << ",\n";
+  WriteIndent (os, indentLevel + 1);
   os << "\"rx_packets\": " << entry.rxPackets << ",\n";
+  WriteIndent (os, indentLevel + 1);
+  os << "\"delay_rx_packets\": " << entry.delayRxPackets << ",\n";
   WriteIndent (os, indentLevel + 1);
   os << "\"rx_bytes\": " << entry.rxBytes << ",\n";
   WriteIndent (os, indentLevel + 1);
@@ -272,6 +284,10 @@ WritePriorityMetricsEntryJson (std::ostream &os,
   WriteIndent (os, indentLevel + 1);
   os << "\"delay_ms\": ";
   WriteDistributionSummaryJson (os, entry.delay, indentLevel + 1);
+  os << ",\n";
+  WriteIndent (os, indentLevel + 1);
+  os << "\"overall_delay_ms\": ";
+  WriteDistributionSummaryJson (os, entry.overallDelay, indentLevel + 1);
   os << ",\n";
   WriteIndent (os, indentLevel + 1);
   os << "\"jitter_ms\": ";
@@ -284,6 +300,9 @@ WritePriorityMetricsEntryJson (std::ostream &os,
   os << "\"min_flow_throughput_mbps\": " << entry.minFlowThroughputMbps << ",\n";
   WriteIndent (os, indentLevel + 1);
   os << "\"max_flow_throughput_mbps\": " << entry.maxFlowThroughputMbps << ",\n";
+  WriteIndent (os, indentLevel + 1);
+  os << "\"delay_excludes_peak_flows\": "
+     << (entry.delayExcludesPeakFlows ? "true" : "false") << ",\n";
   WriteIndent (os, indentLevel + 1);
   os << "\"uses_priority_specific_delay_sla\": "
      << (entry.usesPrioritySpecificDelaySla ? "true" : "false") << ",\n";
@@ -712,13 +731,15 @@ PriorityPacketSinkTracker::BuildSummary (const std::vector<ClientTrafficConfig> 
       aggregate.activeFlows += 1;
       aggregate.rxBytes += stats.rxBytes;
       aggregate.rxPackets += stats.rxPackets;
-      aggregate.delaySlaViolationPackets += stats.delaySlaViolationPackets;
-      aggregate.delaySamplesMs.insert (aggregate.delaySamplesMs.end (),
-                                       stats.delaySamplesMs.begin (),
-                                       stats.delaySamplesMs.end ());
-      aggregate.jitterSamplesMs.insert (aggregate.jitterSamplesMs.end (),
-                                        stats.jitterSamplesMs.begin (),
-                                        stats.jitterSamplesMs.end ());
+      aggregate.overallDelay.activeFlows += 1;
+      aggregate.overallDelay.rxPackets += stats.rxPackets;
+      aggregate.overallDelay.delaySlaViolationPackets += stats.delaySlaViolationPackets;
+      aggregate.overallDelay.delaySamplesMs.insert (aggregate.overallDelay.delaySamplesMs.end (),
+                                                    stats.delaySamplesMs.begin (),
+                                                    stats.delaySamplesMs.end ());
+      aggregate.overallDelay.jitterSamplesMs.insert (aggregate.overallDelay.jitterSamplesMs.end (),
+                                                     stats.jitterSamplesMs.begin (),
+                                                     stats.jitterSamplesMs.end ());
       aggregate.minFlowThroughputMbps =
           std::min (aggregate.minFlowThroughputMbps, flowThroughputMbps);
       aggregate.maxFlowThroughputMbps =
@@ -727,17 +748,42 @@ PriorityPacketSinkTracker::BuildSummary (const std::vector<ClientTrafficConfig> 
       overall.activeFlows += 1;
       overall.rxBytes += stats.rxBytes;
       overall.rxPackets += stats.rxPackets;
-      overall.delaySlaViolationPackets += stats.delaySlaViolationPackets;
-      overall.delaySamplesMs.insert (overall.delaySamplesMs.end (),
-                                     stats.delaySamplesMs.begin (),
-                                     stats.delaySamplesMs.end ());
-      overall.jitterSamplesMs.insert (overall.jitterSamplesMs.end (),
-                                      stats.jitterSamplesMs.begin (),
-                                      stats.jitterSamplesMs.end ());
+      overall.overallDelay.activeFlows += 1;
+      overall.overallDelay.rxPackets += stats.rxPackets;
+      overall.overallDelay.delaySlaViolationPackets += stats.delaySlaViolationPackets;
+      overall.overallDelay.delaySamplesMs.insert (overall.overallDelay.delaySamplesMs.end (),
+                                                  stats.delaySamplesMs.begin (),
+                                                  stats.delaySamplesMs.end ());
+      overall.overallDelay.jitterSamplesMs.insert (overall.overallDelay.jitterSamplesMs.end (),
+                                                   stats.jitterSamplesMs.begin (),
+                                                   stats.jitterSamplesMs.end ());
       overall.minFlowThroughputMbps =
           std::min (overall.minFlowThroughputMbps, flowThroughputMbps);
       overall.maxFlowThroughputMbps =
           std::max (overall.maxFlowThroughputMbps, flowThroughputMbps);
+
+      if (!TemplateIdLooksPeakLike (client.templateId))
+        {
+          aggregate.steadyDelay.activeFlows += 1;
+          aggregate.steadyDelay.rxPackets += stats.rxPackets;
+          aggregate.steadyDelay.delaySlaViolationPackets += stats.delaySlaViolationPackets;
+          aggregate.steadyDelay.delaySamplesMs.insert (aggregate.steadyDelay.delaySamplesMs.end (),
+                                                       stats.delaySamplesMs.begin (),
+                                                       stats.delaySamplesMs.end ());
+          aggregate.steadyDelay.jitterSamplesMs.insert (aggregate.steadyDelay.jitterSamplesMs.end (),
+                                                        stats.jitterSamplesMs.begin (),
+                                                        stats.jitterSamplesMs.end ());
+
+          overall.steadyDelay.activeFlows += 1;
+          overall.steadyDelay.rxPackets += stats.rxPackets;
+          overall.steadyDelay.delaySlaViolationPackets += stats.delaySlaViolationPackets;
+          overall.steadyDelay.delaySamplesMs.insert (overall.steadyDelay.delaySamplesMs.end (),
+                                                     stats.delaySamplesMs.begin (),
+                                                     stats.delaySamplesMs.end ());
+          overall.steadyDelay.jitterSamplesMs.insert (overall.steadyDelay.jitterSamplesMs.end (),
+                                                      stats.jitterSamplesMs.begin (),
+                                                      stats.jitterSamplesMs.end ());
+        }
     }
 
   auto AppendAggregate = [&] (bool isOverall,
@@ -748,25 +794,29 @@ PriorityPacketSinkTracker::BuildSummary (const std::vector<ClientTrafficConfig> 
     entry.priority = priority;
     entry.expectedFlows = aggregate.expectedFlows;
     entry.activeFlows = aggregate.activeFlows;
+    entry.delayActiveFlows = aggregate.steadyDelay.activeFlows;
     entry.rxBytes = aggregate.rxBytes;
     entry.rxPackets = aggregate.rxPackets;
+    entry.delayRxPackets = aggregate.steadyDelay.rxPackets;
     entry.throughputMbps =
         (windowSeconds > 0.0)
             ? (static_cast<double> (aggregate.rxBytes) * 8.0 / windowSeconds / 1e6)
             : 0.0;
-    entry.delay = SummarizeDistribution (aggregate.delaySamplesMs);
-    entry.jitter = SummarizeDistribution (aggregate.jitterSamplesMs);
+    entry.delay = SummarizeDistribution (aggregate.steadyDelay.delaySamplesMs);
+    entry.overallDelay = SummarizeDistribution (aggregate.overallDelay.delaySamplesMs);
+    entry.jitter = SummarizeDistribution (aggregate.steadyDelay.jitterSamplesMs);
     entry.hasFlowThroughputRange = (aggregate.activeFlows > 0);
+    entry.delayExcludesPeakFlows = true;
     entry.usesPrioritySpecificDelaySla = isOverall;
     if (!isOverall)
       {
         entry.delaySlaThresholdMs = GetDelaySlaThresholdMs (priority);
       }
-    entry.delaySlaViolationPackets = aggregate.delaySlaViolationPackets;
+    entry.delaySlaViolationPackets = aggregate.steadyDelay.delaySlaViolationPackets;
     entry.delaySlaViolationRatePct =
-        (aggregate.rxPackets > 0)
-            ? (100.0 * static_cast<double> (aggregate.delaySlaViolationPackets) /
-               static_cast<double> (aggregate.rxPackets))
+        (aggregate.steadyDelay.rxPackets > 0)
+            ? (100.0 * static_cast<double> (aggregate.steadyDelay.delaySlaViolationPackets) /
+               static_cast<double> (aggregate.steadyDelay.rxPackets))
             : 0.0;
     if (entry.hasFlowThroughputRange)
       {
@@ -814,7 +864,9 @@ PrintPriorityMetricsReport (const PriorityMetricsReport &report,
         }
       oss << " activeFlows=" << entry.activeFlows << "/"
           << entry.expectedFlows
+          << " delayActiveFlows=" << entry.delayActiveFlows
           << " rxPackets=" << entry.rxPackets
+          << " delayRxPackets=" << entry.delayRxPackets
           << " rxBytes=" << entry.rxBytes
           << " throughputMbps=" << entry.throughputMbps
           << " meanDelayMs=" << entry.delay.mean
@@ -823,6 +875,12 @@ PrintPriorityMetricsReport (const PriorityMetricsReport &report,
           << " p99DelayMs=" << entry.delay.p99
           << " p999DelayMs=" << entry.delay.p999
           << " maxDelayMs=" << entry.delay.max
+          << " overallMeanDelayMs=" << entry.overallDelay.mean
+          << " overallP50DelayMs=" << entry.overallDelay.p50
+          << " overallP95DelayMs=" << entry.overallDelay.p95
+          << " overallP99DelayMs=" << entry.overallDelay.p99
+          << " overallP999DelayMs=" << entry.overallDelay.p999
+          << " overallMaxDelayMs=" << entry.overallDelay.max
           << " meanJitterMs=" << entry.jitter.mean
           << " p95JitterMs=" << entry.jitter.p95
           << " p99JitterMs=" << entry.jitter.p99

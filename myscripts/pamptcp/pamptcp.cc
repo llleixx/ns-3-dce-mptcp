@@ -47,6 +47,22 @@ NS_LOG_COMPONENT_DEFINE ("DceNrWifiMptcp120Demo");
 namespace
 {
 
+uint8_t
+GetSchedulerSpecificDscp (const ClientTrafficConfig &client,
+                          const std::string &mptcpScheduler)
+{
+  if (mptcpScheduler == "testburst" || mptcpScheduler == "testhybrid")
+    {
+      const uint64_t steadyRate = client.app.appSteadyRate.GetBitRate ();
+      const uint64_t burstRate = client.app.appBurstRate.GetBitRate ();
+      const bool isPeakLike =
+          std::max (steadyRate, burstRate) >= 1000000ULL;
+      return isPeakLike ? 8 : 16;
+    }
+
+  return PriorityToDscp (client.app.priority);
+}
+
 enum class PathMode
 {
   DUAL,
@@ -231,16 +247,15 @@ int
 main (int argc, char *argv[])
 {
   uint32_t numClients = 120;
-  double simTime = 20.0;
+  double simTime = 10.0;
   double sinkStart = 1.0;
   double clientStart = 1.1;
-  double clientStartJitter = 0.03;
+  double clientStartJitter = 1.0;
   int64_t clientStartJitterStream = 1;
   uint16_t port = 5000;
-  uint32_t numAps = 4;
+  uint32_t numAps = 1;
   std::string appSteadyRate = "50.9Kbps";
   std::string appBurstRate = "92.79Mbps";
-  uint32_t appPacketSize = 1500;
   std::string appTrafficModel = "duration";
   double appBurstProb = 0.0005;
   double appInitialSendDelay = 0;
@@ -305,9 +320,6 @@ main (int argc, char *argv[])
   cmd.AddValue ("numAps", "Number of WiFi APs", numAps);
   cmd.AddValue ("appSteadyRate", "RateDual steady-state rate", appSteadyRate);
   cmd.AddValue ("appBurstRate", "RateDual burst-state rate", appBurstRate);
-  cmd.AddValue ("appPacketSize",
-                "Application packet size in bytes",
-                appPacketSize);
   cmd.AddValue ("appTrafficModel",
                 "RateDual traffic model: duration or legacy-probability",
                 appTrafficModel);
@@ -350,7 +362,7 @@ main (int argc, char *argv[])
   cmd.AddValue ("wifiEnableBsrp",
                 "Enable WiFi BSRP for UL OFDMA scheduling",
                 wifiEnableBsrp);
-  cmd.AddValue ("mptcpScheduler", "MPTCP scheduler (e.g. default, roundrobin, redundant, blest, pablest)", mptcpScheduler);
+  cmd.AddValue ("mptcpScheduler", "MPTCP scheduler (e.g. default, default_v1, default_v1_full, roundrobin, redundant, blest, pablest, linksense)", mptcpScheduler);
   cmd.AddValue ("pathMode",
                 "Path mode: dual, wifi-only, or nr-only",
                 pathMode);
@@ -420,8 +432,7 @@ main (int argc, char *argv[])
                                     appInitialSendDelay,
                                     appStateInterval,
                                     appSteadyTime,
-                                    appBurstTime,
-                                    appPacketSize);
+                                    appBurstTime);
   std::string scenarioId = "legacy-cli";
   std::vector<ClientTrafficConfig> clientTrafficConfigs;
   NS_ABORT_MSG_IF (!trafficExperiment.empty (),
@@ -454,7 +465,7 @@ main (int argc, char *argv[])
 
   if (statsStart < 0.0)
     {
-      statsStart = std::max (clientStart, simTime * 0.5);
+      statsStart = std::max (clientStart, 4.0);
     }
   if (statsStop < 0.0)
     {
@@ -1007,6 +1018,7 @@ main (int argc, char *argv[])
           GetIfName (apNodes.Get (apIndex), serverApIf.GetAddress (1)));
       serverBackboneTraceDevs.push_back (serverApDevs.Get (0));
     }
+
   BackboneTcpPayloadTracker backboneTcpTracker (Seconds (statsStart),
                                                Seconds (statsStop));
   if (checkBackboneDualTraffic || enablePriorityFlowMetrics)
@@ -1188,7 +1200,8 @@ main (int argc, char *argv[])
   for (uint32_t i = 0; i < ueNodes.GetN (); ++i)
     {
       const ClientTrafficConfig &client = clientTrafficConfigs[i];
-      const uint8_t ipTos = DscpToIpTos (PriorityToDscp (client.app.priority));
+      const uint8_t ipTos =
+          DscpToIpTos (GetSchedulerSpecificDscp (client, mptcpScheduler));
       RateDualHelper traffic ("ns3::LinuxTcpSocketFactory",
                               InetSocketAddress (serverBackboneIp, port));
       if (selectedPathMode == PathMode::NR_ONLY)
@@ -1206,7 +1219,6 @@ main (int argc, char *argv[])
               "Local",
               AddressValue (InetSocketAddress (wifiIt->second.addr, 0)));
         }
-      traffic.SetAttribute ("PacketSize", UintegerValue (client.app.appPacketSize));
       traffic.SetAttribute ("IpTos", UintegerValue (ipTos));
       traffic.SetAttribute ("SteadyRate",
                             DataRateValue (client.app.appSteadyRate));
@@ -1290,16 +1302,30 @@ main (int argc, char *argv[])
       dce.ResetEnvironment ();
       dce.AddArgument ("-tin");
 
-      const double dumpTime = std::max (clientStart + 1.0, simTime - 0.4);
-      ApplicationContainer serverSs = dce.Install (server);
-      serverSs.Start (Seconds (dumpTime));
-      serverSs.Stop (Seconds (simTime + 0.1));
+      std::vector<double> dumpTimes;
+      dumpTimes.push_back (std::max (clientStart + 0.5, 2.5));
+      dumpTimes.push_back (std::max (clientStart + 1.0, 3.0));
+      dumpTimes.push_back (std::max (clientStart + 2.0, 4.0));
+      dumpTimes.push_back (std::max (clientStart + 3.0, 5.0));
+      dumpTimes.push_back (std::max (clientStart + 3.8, simTime - 0.4));
 
-      for (uint32_t i = 0; i < std::min (dumpSocketCount, ueNodes.GetN ()); ++i)
+      for (double dumpTime : dumpTimes)
         {
-          ApplicationContainer ueSs = dce.Install (ueNodes.Get (i));
-          ueSs.Start (Seconds (dumpTime));
-          ueSs.Stop (Seconds (simTime + 0.1));
+          if (dumpTime >= simTime)
+            {
+              continue;
+            }
+
+          ApplicationContainer serverSs = dce.Install (server);
+          serverSs.Start (Seconds (dumpTime));
+          serverSs.Stop (Seconds (dumpTime + 0.2));
+
+          for (uint32_t i = 0; i < std::min (dumpSocketCount, ueNodes.GetN ()); ++i)
+            {
+              ApplicationContainer ueSs = dce.Install (ueNodes.Get (i));
+              ueSs.Start (Seconds (dumpTime));
+              ueSs.Stop (Seconds (dumpTime + 0.2));
+            }
         }
     }
 
