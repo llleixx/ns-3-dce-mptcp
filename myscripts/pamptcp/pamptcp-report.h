@@ -58,7 +58,7 @@ struct PriorityMetricsEntry
   uint64_t delayRxPackets = 0;
   double throughputMbps = 0.0;
   DistributionSummary delay;
-  DistributionSummary overallDelay;
+  DistributionSummary peakDelay;
   DistributionSummary jitter;
   bool hasFlowThroughputRange = false;
   double minFlowThroughputMbps = 0.0;
@@ -152,7 +152,7 @@ struct DualLinkPayloadSummary
 
 struct SimulationJsonReport
 {
-  std::string formatVersion = "pamptcp-summary-v2";
+  std::string formatVersion = "pamptcp-summary-v3";
   std::string scenarioId;
   std::string trafficProfileDir;
   std::string reportPath;
@@ -228,7 +228,7 @@ private:
     uint64_t rxBytes = 0;
     uint64_t rxPackets = 0;
     DelayAggregateStats steadyDelay;
-    DelayAggregateStats overallDelay;
+    DelayAggregateStats peakDelay;
     double minFlowThroughputMbps = std::numeric_limits<double>::max ();
     double maxFlowThroughputMbps = 0.0;
   };
