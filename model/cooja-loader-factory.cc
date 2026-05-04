@@ -17,6 +17,7 @@
 #include <sys/mman.h>
 #include <list>
 #include <errno.h>
+#include <cstdlib>
 
 namespace {
 struct SharedModule
@@ -81,7 +82,20 @@ SharedModules::SharedModules ()
 #ifdef DCE_MPI
   : cache ("elf-cache", MpiInterface::GetSystemId ())
 #else
-  : cache ("elf-cache", 0)
+  : cache ([] () {
+      const char *base = std::getenv ("DCE_FILES_DIR");
+      if (base == 0 || base[0] == '\0')
+        {
+          return std::string ("elf-cache");
+        }
+      std::string directory = base;
+      if (directory.empty () || directory[directory.size () - 1] != '/')
+        {
+          directory += "/";
+        }
+      directory += "elf-cache";
+      return directory;
+    } (), 0)
 #endif
 {
 }

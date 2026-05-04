@@ -1052,7 +1052,7 @@ void
 DceManager::AppendStatusFile (uint16_t pid, uint32_t nodeId,  std::string &line)
 {
   std::ostringstream oss;
-  oss << "files-" << nodeId << "/var/log/" << pid << "/status";
+  oss << UtilsGetRealFilePath (nodeId) << "/var/log/" << pid << "/status";
   std::string s = oss.str ();
 
   int fd = ::open (s.c_str (), O_WRONLY | O_APPEND, 0);

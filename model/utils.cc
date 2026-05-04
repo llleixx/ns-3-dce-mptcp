@@ -11,6 +11,7 @@
 #include <dirent.h>
 #include <errno.h>
 #include <string.h>
+#include <stdlib.h>
 #include <list>
 #include <fcntl.h>
 #include <unistd.h>
@@ -38,9 +39,18 @@ uint32_t UtilsGetNodeId (void)
     }
   return Simulator::GetContext ();
 }
-static std::string UtilsGetRealFilePath (uint32_t node)
+std::string UtilsGetRealFilePath (uint32_t node)
 {
+  const char *base = ::getenv ("DCE_FILES_DIR");
   std::ostringstream oss;
+  if (base != 0 && base[0] != '\0')
+    {
+      oss << base;
+      if (oss.str ().empty () || oss.str ().back () != '/')
+        {
+          oss << "/";
+        }
+    }
   oss << "files-" << node;
   return oss.str ();
 }
@@ -90,10 +100,23 @@ void UtilsEnsureDirectoryExists (std::string realPath)
   else if (errno == ENOENT)
     {
       int status = ::mkdir (realPath.c_str (), S_IRWXU | S_IRWXG);
-      if (status == -1)
+      if (status == -1 && errno != EEXIST)
         {
           NS_FATAL_ERROR ("Could not create directory " << realPath <<
                           ": " << strerror (errno));
+        }
+      if (status == -1 && errno == EEXIST)
+        {
+          dir = ::opendir (realPath.c_str ());
+          if (dir != 0)
+            {
+              ::closedir (dir);
+            }
+          else
+            {
+              NS_FATAL_ERROR ("Could not create directory " << realPath <<
+                              ": " << strerror (errno));
+            }
         }
     }
 }

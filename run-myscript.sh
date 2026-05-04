@@ -7,6 +7,9 @@ mode="opt"
 jobs="${JOBS:-4}"
 timeout_seconds="0"
 clean_files="0"
+isolate_files="0"
+dce_files_dir=""
+run_dir=""
 target_override=""
 source_path=""
 program_args=()
@@ -26,6 +29,9 @@ Options:
   -j, --jobs N     Parallel jobs for the build step. Default: 4
   --target NAME    Override target resolution when the source maps to multiple targets
   --clean-files    Remove files-* before running
+  --isolate-files  Run from a fresh /tmp directory and write DCE files-* there
+  --dce-files-dir DIR
+                   Write DCE files-* under DIR instead of the repository root
   -h, --help       Show this help
 
 Examples:
@@ -225,6 +231,19 @@ while (($#)); do
       clean_files="1"
       shift
       ;;
+    --isolate-files)
+      isolate_files="1"
+      shift
+      ;;
+    --dce-files-dir)
+      (($# >= 2)) || die "missing value for --dce-files-dir"
+      dce_files_dir="$2"
+      shift 2
+      ;;
+    --dce-files-dir=*)
+      dce_files_dir="${1#*=}"
+      shift
+      ;;
     -h|--help)
       usage
       exit 0
@@ -300,9 +319,36 @@ if [[ -n "${DCE_PATH:-}" ]]; then
   dce_path="${dce_path}:${DCE_PATH}"
 fi
 
+if [[ "${isolate_files}" == "1" && -n "${dce_files_dir}" ]]; then
+  die "--isolate-files and --dce-files-dir cannot be used together"
+fi
+if [[ "${isolate_files}" == "1" ]]; then
+  run_dir=$(mktemp -d "${TMPDIR:-/tmp}/ns3-dce-run.XXXXXX")
+  dce_files_dir="${run_dir}"
+fi
+env_args=("LD_LIBRARY_PATH=${ld_library_path}" "DCE_PATH=${dce_path}" "PAMPTCP_BASE_DIR=${repo_root}")
+if [[ -n "${dce_files_dir}" ]]; then
+  mkdir -p "${dce_files_dir}"
+  dce_files_dir=$(realpath "${dce_files_dir}")
+  env_args+=("DCE_FILES_DIR=${dce_files_dir}")
+  echo "[run-myscript] DCE_FILES_DIR=${dce_files_dir}"
+fi
+
 if [[ "${clean_files}" == "1" ]]; then
-  echo "[run-myscript] removing files-*"
-  rm -rf files-*
+  if [[ -n "${dce_files_dir}" ]]; then
+    echo "[run-myscript] removing ${dce_files_dir}/files-*"
+    mkdir -p "${dce_files_dir}"
+    find "${dce_files_dir}" -maxdepth 1 -type d -name 'files-*' -prune -exec rm -rf {} +
+  else
+    echo "[run-myscript] removing files-*"
+    rm -rf files-*
+  fi
+fi
+if [[ -n "${run_dir}" ]]; then
+  run_dir=$(realpath "${run_dir}")
+  echo "[run-myscript] run_dir=${run_dir}"
+else
+  run_dir="${repo_root}"
 fi
 
 time_cmd=(/usr/bin/time -f 'real=%e user=%U sys=%S maxrss=%M exit=%x')
@@ -311,7 +357,9 @@ if [[ "${timeout_seconds}" != "0" ]]; then
   timeout_cmd=(/usr/bin/timeout "${timeout_seconds}s")
 fi
 
+cd "${run_dir}"
+
 run_cmd "${time_cmd[@]}" \
   "${timeout_cmd[@]}" \
-  env "LD_LIBRARY_PATH=${ld_library_path}" "DCE_PATH=${dce_path}" \
+  env "${env_args[@]}" \
   "${binary_path}" "${program_args[@]}"

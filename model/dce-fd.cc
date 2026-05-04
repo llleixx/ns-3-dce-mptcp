@@ -173,7 +173,22 @@ int dce_openat (int dirfd, const char *pathname, int flags, ...) {
 
   // We find the directory referred by dirfd and finally open the dile with dce_open
   std::stringstream command_cp;    
-  command_cp << "cd files-" << UtilsGetNodeId () << "; find . -inum " << finfo.st_ino;
+  const std::string rootPath = UtilsGetRealFilePath (UtilsGetNodeId ());
+  std::string quotedRootPath = "'";
+  for (std::string::const_iterator it = rootPath.begin (); it != rootPath.end (); ++it)
+    {
+      if (*it == '\'')
+        {
+          quotedRootPath += "'\\''";
+        }
+      else
+        {
+          quotedRootPath += *it;
+        }
+    }
+  quotedRootPath += "'";
+  command_cp << "cd " << quotedRootPath
+             << "; find . -inum " << finfo.st_ino;
 
   const char* cmd = command_cp.str ().c_str ();
   char buffer[128];

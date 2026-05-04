@@ -1,8 +1,8 @@
 {
   "format_version": "pamptcp-summary-v3",
   "scenario_id": "p3-sub-peak-0",
-  "traffic_profile_dir": "myscripts/pamptcp/flow-priority-30/p3-sub-peak-0",
-  "report_path": "myscripts/pamptcp/flow-priority-30/p3-sub-peak-0/default-stream1-10s.json",
+  "traffic_profile_dir": "/root/bake/source/ns-3-dce/myscripts/pamptcp/flow-priority-30/p3-sub-peak-0",
+  "report_path": "/root/bake/source/ns-3-dce/myscripts/pamptcp/flow-priority-30/p3-sub-peak-0/default-stream1-10s.json",
   "mptcp_scheduler": "default",
   "sim_time_seconds": 10.000000,
   "sink_start_seconds": 1.000000,
@@ -50,11 +50,11 @@
         "rx_bytes": 4009500,
         "throughput_mbps": 5.346000,
         "delay_ms": {
-          "mean": 0.673474,
-          "p50": 0.627451,
-          "p95": 0.696345,
-          "p99": 0.832770,
-          "p999": 4.243803,
+          "mean": 0.671132,
+          "p50": 0.627267,
+          "p95": 0.696342,
+          "p99": 0.728090,
+          "p999": 4.232526,
           "max": 4.970718
         },
         "peak_delay_ms": {
@@ -66,11 +66,11 @@
           "max": 0.000000
         },
         "jitter_ms": {
-          "mean": 0.039102,
+          "mean": 0.034702,
           "p50": 0.003000,
-          "p95": 0.007074,
-          "p99": 0.287958,
-          "p999": 3.685715,
+          "p95": 0.006893,
+          "p99": 0.224958,
+          "p999": 3.676328,
           "max": 4.280380
         },
         "has_flow_throughput_range": true,
@@ -97,7 +97,7 @@
         "rx_bytes": 162000,
         "throughput_mbps": 0.216000,
         "delay_ms": {
-          "mean": 0.584628,
+          "mean": 0.584598,
           "p50": 0.584719,
           "p95": 0.588002,
           "p99": 0.588258,
@@ -113,7 +113,7 @@
           "max": 0.000000
         },
         "jitter_ms": {
-          "mean": 0.003384,
+          "mean": 0.003377,
           "p50": 0.003000,
           "p95": 0.006736,
           "p99": 0.006979,
@@ -144,12 +144,12 @@
         "rx_bytes": 1039500,
         "throughput_mbps": 1.386000,
         "delay_ms": {
-          "mean": 0.634368,
+          "mean": 0.628057,
           "p50": 0.625173,
-          "p95": 0.628727,
-          "p99": 0.846410,
-          "p999": 0.903408,
-          "max": 0.909741
+          "p95": 0.628340,
+          "p99": 0.705109,
+          "p999": 0.832578,
+          "max": 0.846741
         },
         "peak_delay_ms": {
           "mean": 0.000000,
@@ -160,12 +160,12 @@
           "max": 0.000000
         },
         "jitter_ms": {
-          "mean": 0.023538,
-          "p50": 0.003161,
-          "p95": 0.185212,
-          "p99": 0.287817,
-          "p999": 0.289189,
-          "max": 0.289341
+          "mean": 0.011600,
+          "p50": 0.003000,
+          "p95": 0.007242,
+          "p99": 0.224817,
+          "p999": 0.226189,
+          "max": 0.226341
         },
         "has_flow_throughput_range": true,
         "min_flow_throughput_mbps": 0.126000,
@@ -191,8 +191,8 @@
         "rx_bytes": 2808000,
         "throughput_mbps": 3.744000,
         "delay_ms": {
-          "mean": 0.747569,
-          "p50": 0.692471,
+          "mean": 0.747518,
+          "p50": 0.692422,
           "p95": 0.696380,
           "p99": 1.679609,
           "p999": 4.641607,
@@ -207,7 +207,7 @@
           "max": 0.000000
         },
         "jitter_ms": {
-          "mean": 0.068757,
+          "mean": 0.068707,
           "p50": 0.003000,
           "p95": 0.006000,
           "p99": 1.545060,

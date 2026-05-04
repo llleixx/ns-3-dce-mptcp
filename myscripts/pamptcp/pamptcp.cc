@@ -25,6 +25,7 @@
 #include "ns3/dce-module.h"
 
 #include <algorithm>
+#include <cstdlib>
 #include <cstdint>
 #include <iomanip>
 #include <limits>
@@ -47,11 +48,54 @@ NS_LOG_COMPONENT_DEFINE ("DceNrWifiMptcp120Demo");
 namespace
 {
 
+bool
+IsAbsolutePath (const std::string &path)
+{
+  return !path.empty () && path[0] == '/';
+}
+
+std::string
+JoinPath (const std::string &directory, const std::string &path)
+{
+  if (directory.empty () || directory.back () == '/')
+    {
+      return directory + path;
+    }
+  return directory + "/" + path;
+}
+
+std::string
+ResolvePamptcpPath (const std::string &path)
+{
+  if (path.empty () || IsAbsolutePath (path))
+    {
+      return path;
+    }
+
+  const char *base = std::getenv ("PAMPTCP_BASE_DIR");
+  if (base != nullptr && base[0] != '\0')
+    {
+      return JoinPath (base, path);
+    }
+
+  return path;
+}
+
 uint8_t
 GetSchedulerSpecificDscp (const ClientTrafficConfig &client,
                           const std::string &mptcpScheduler)
 {
   if (mptcpScheduler == "testburst" || mptcpScheduler == "testhybrid")
+    {
+      const uint64_t steadyRate = client.app.appSteadyRate.GetBitRate ();
+      const uint64_t burstRate = client.app.appBurstRate.GetBitRate ();
+      const bool isPeakLike =
+          std::max (steadyRate, burstRate) >= 1000000ULL;
+      return isPeakLike ? 8 : 16;
+    }
+
+  if (mptcpScheduler == "pamnrpkwi" ||
+      mptcpScheduler == "pamnrpkwionly")
     {
       const uint64_t steadyRate = client.app.appSteadyRate.GetBitRate ();
       const uint64_t burstRate = client.app.appBurstRate.GetBitRate ();
@@ -234,7 +278,7 @@ ConfigureMptcp (LinuxStackHelper &stack,
   stack.SysctlSet (nodes, ".net.mptcp.mptcp_enabled", "1");
   stack.SysctlSet (nodes, ".net.mptcp.mptcp_path_manager", "fullmesh");
   stack.SysctlSet (nodes, ".net.mptcp.mptcp_scheduler", mptcpScheduler);
-  stack.SysctlSet (nodes, ".net.ipv4.tcp_congestion_control", "olia");
+  stack.SysctlSet (nodes, ".net.ipv4.tcp_congestion_control", "cubic");
   if (enableMptcpDebug)
     {
       stack.SysctlSet (nodes, ".net.mptcp.mptcp_debug", "1");
@@ -362,7 +406,7 @@ main (int argc, char *argv[])
   cmd.AddValue ("wifiEnableBsrp",
                 "Enable WiFi BSRP for UL OFDMA scheduling",
                 wifiEnableBsrp);
-  cmd.AddValue ("mptcpScheduler", "MPTCP scheduler (e.g. default, default_v1, default_v1_full, roundrobin, redundant, blest, ecf, pablest, linksense, tailassist, redassist, flowsplit)", mptcpScheduler);
+  cmd.AddValue ("mptcpScheduler", "MPTCP scheduler (e.g. default, default_v1, default_v1_full, roundrobin, redundant, blest, ecf, pablest, linksense, tailassist, redassist, flowsplit, pam)", mptcpScheduler);
   cmd.AddValue ("pathMode",
                 "Path mode: dual, wifi-only, or nr-only",
                 pathMode);
@@ -437,10 +481,12 @@ main (int argc, char *argv[])
   std::vector<ClientTrafficConfig> clientTrafficConfigs;
   NS_ABORT_MSG_IF (!trafficExperiment.empty (),
                    "--trafficExperiment is deprecated; each trafficProfileDir is one scenario");
+  const std::string resolvedTrafficProfileDir =
+      ResolvePamptcpPath (trafficProfileDir);
   if (!trafficProfileDir.empty ())
     {
       const TrafficProfileConfig trafficProfile =
-          LoadTrafficProfileConfig (trafficProfileDir, defaultTrafficApp);
+          LoadTrafficProfileConfig (resolvedTrafficProfileDir, defaultTrafficApp);
       clientTrafficConfigs = trafficProfile.clients;
       scenarioId = trafficProfile.scenarioId;
       numClients = clientTrafficConfigs.size ();
@@ -481,7 +527,7 @@ main (int argc, char *argv[])
   if (!trafficProfileDir.empty ())
     {
       summaryReportPath =
-          BuildSummaryReportPath (trafficProfileDir,
+          BuildSummaryReportPath (resolvedTrafficProfileDir,
                                   mptcpScheduler,
                                   pathMode,
                                   clientStartJitterStream,
@@ -492,7 +538,7 @@ main (int argc, char *argv[])
 
   SimulationJsonReport jsonReport;
   jsonReport.scenarioId = scenarioId;
-  jsonReport.trafficProfileDir = trafficProfileDir;
+  jsonReport.trafficProfileDir = resolvedTrafficProfileDir;
   jsonReport.reportPath = summaryReportPath;
   jsonReport.mptcpScheduler = mptcpScheduler;
   jsonReport.simTimeSeconds = simTime;
@@ -592,7 +638,7 @@ main (int argc, char *argv[])
         }
 
       std::ostringstream oss;
-      oss << "[120-demo] Traffic profile: dir=" << trafficProfileDir
+      oss << "[120-demo] Traffic profile: dir=" << resolvedTrafficProfileDir
           << " scenario=" << scenarioId
           << " statsWindow=[" << statsStart << "," << statsStop << "]s";
       for (const auto &entry : clientsPerPriority)
@@ -710,13 +756,13 @@ main (int argc, char *argv[])
   stack.Install (linuxNodes);
   dceManager.Install (linuxNodes);
 
-  // Common TCP / routing-related sysctls
-  stack.SysctlSet (linuxNodes, ".net.core.wmem_default", "16777216");
-  stack.SysctlSet (linuxNodes, ".net.core.wmem_max", "16777216");
-  stack.SysctlSet (linuxNodes, ".net.core.rmem_default", "16777216");
-  stack.SysctlSet (linuxNodes, ".net.core.rmem_max", "16777216");
-  stack.SysctlSet (linuxNodes, ".net.ipv4.tcp_rmem", "4096 87380 16777216");
-  stack.SysctlSet (linuxNodes, ".net.ipv4.tcp_wmem", "4096 65536 16777216");
+  // Ubuntu-like TCP defaults, plus scenario-specific routing knobs below.
+  stack.SysctlSet (linuxNodes, ".net.core.wmem_default", "212992");
+  stack.SysctlSet (linuxNodes, ".net.core.wmem_max", "212992");
+  stack.SysctlSet (linuxNodes, ".net.core.rmem_default", "212992");
+  stack.SysctlSet (linuxNodes, ".net.core.rmem_max", "212992");
+  stack.SysctlSet (linuxNodes, ".net.ipv4.tcp_rmem", "4096 131072 6291456");
+  stack.SysctlSet (linuxNodes, ".net.ipv4.tcp_wmem", "4096 16384 4194304");
   // Improve many-simultaneous-connect behavior on the server side.
   stack.SysctlSet (serverNode, ".net.core.somaxconn", "4096");
   stack.SysctlSet (serverNode, ".net.ipv4.tcp_max_syn_backlog", "4096");
