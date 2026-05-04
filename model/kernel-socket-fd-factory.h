@@ -9,6 +9,7 @@
 #include <vector>
 #include <string>
 #include <utility>
+#include <map>
 #include <stdarg.h>
 #include <stdio.h>
 #include "linux/types.h"
@@ -62,6 +63,14 @@ private:
   struct EventIdHolder : public SimpleRefCount<EventIdHolder>
   {
     EventId id;
+    uint64_t scheduleSeq;
+    int64_t scheduleNowNs;
+    uint64_t delayNs;
+    uint64_t targetNs;
+    uint64_t functionSeq;
+    uint64_t contextSeq;
+    void (*fn)(void *context);
+    void *context;
   };
 
   // called from KernelSocketFd
@@ -146,6 +155,14 @@ private:
   std::vector<std::pair<Ptr<NetDevice>,struct SimDevice *> > m_devices;
   std::list<Task *> m_kernelTasks;
   Ptr<UniformRandomVariable> m_variable;
+  uint64_t m_randomCallCount;
+  uint64_t m_eventScheduleCount;
+  uint64_t m_eventExecuteCount;
+  uint64_t m_devTxCount;
+  uint64_t m_devRxCount;
+  std::map<void *, uint64_t> m_eventFunctionSeqs;
+  std::map<void *, uint64_t> m_eventContextSeqs;
+  std::map<void *, uint64_t> m_deviceSeqs;
   KingsleyAlloc *m_alloc;
   std::vector<Ptr<KernelDeviceStateListener> > m_listeners;
   double m_rate;

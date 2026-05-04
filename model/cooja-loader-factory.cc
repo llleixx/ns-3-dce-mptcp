@@ -83,6 +83,11 @@ SharedModules::SharedModules ()
   : cache ("elf-cache", MpiInterface::GetSystemId ())
 #else
   : cache ([] () {
+      const char *cacheBase = std::getenv ("DCE_ELF_CACHE_DIR");
+      if (cacheBase != 0 && cacheBase[0] != '\0')
+        {
+          return std::string (cacheBase);
+        }
       const char *base = std::getenv ("DCE_FILES_DIR");
       if (base == 0 || base[0] == '\0')
         {

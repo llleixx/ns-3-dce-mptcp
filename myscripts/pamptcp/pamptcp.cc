@@ -309,6 +309,7 @@ main (int argc, char *argv[])
       "ns3::ConstantRandomVariable[Constant=1.0]";
   std::string appBurstTime =
       "ns3::ConstantRandomVariable[Constant=0.0001]";
+  int64_t nrStreamBase = 10000;
   int64_t appStreamBase = 100;
   uint16_t wifiChannelWidthMhz = 160;
   uint16_t wifiFrequencyMhz = 5250;
@@ -316,9 +317,9 @@ main (int argc, char *argv[])
   uint16_t wifiHeMpduBufferSize = 256;
   uint32_t wifiBeMaxAmpduSize = 6500631;
   double wifiTxPowerDbm = 23.0;
-  bool wifiEnableOfdma = true;
-  bool wifiEnableUlOfdma = true;
-  bool wifiEnableBsrp = true;
+  bool wifiEnableOfdma = false;
+  bool wifiEnableUlOfdma = false;
+  bool wifiEnableBsrp = false;
   std::string mptcpScheduler = "default";
   std::string pathMode = "dual";
   bool enableMptcp = true;
@@ -382,6 +383,9 @@ main (int argc, char *argv[])
   cmd.AddValue ("appBurstTime",
                 "RateDual burst-state time random variable expression when appTrafficModel=duration",
                 appBurstTime);
+  cmd.AddValue ("nrStreamBase",
+                "First RNG stream index for NR PHY/MAC/channel internals",
+                nrStreamBase);
   cmd.AddValue ("appStreamBase",
                 "First RNG stream index for RateDual application internals",
                 appStreamBase);
@@ -1010,6 +1014,12 @@ main (int argc, char *argv[])
   Ipv4InterfaceContainer ueNrIf = epcHelper->AssignUeIpv4Address (ueDevs);
   const Ipv4Address ueGateway = epcHelper->GetUeDefaultGatewayAddress ();
   nrHelper->AttachToClosestEnb (ueDevs, gnbDevs);
+  NetDeviceContainer nrStreamDevs;
+  nrStreamDevs.Add (gnbDevs);
+  nrStreamDevs.Add (ueDevs);
+  int64_t nrStreamsUsed = nrHelper->AssignStreams (nrStreamDevs, nrStreamBase);
+  std::cout << "[120-demo] NR RNG streams: base=" << nrStreamBase
+            << " used=" << nrStreamsUsed << std::endl;
 
   // RRC state snapshots to help debug large-UE bring-up issues.
   Simulator::Schedule (Seconds (0.9), &PrintUeRrcSummary, ueDevs, "t=0.9");

@@ -24,7 +24,7 @@
 
 我目前想法：
 
-单纯从处理 peak 流量来看，default 算法会比其他算法（如 ecf, blest 算法表现好）。但是相比于 peak 流量完成时间，更重要的指标是 steady 流量延迟。我发现在 4 个或 8 个 p3 peak 场景，如果不加以限制，会导致 nr 链路上的稳态流量延迟劣化。
+单纯从处理 peak 流量来看，default 算法会比其他算法（如 ecf, blest 算法表现好）。但是相比于 peak 流量完成时间，**更重要的指标是 steady 流量延迟**（我觉得应该将 max 控制在 10ms 以内）。我发现在 4 个或 8 个 p3 peak 场景，如果不加以限制，会导致 nr 链路上的稳态流量延迟劣化。
 
 目前稳态流量可以固定为走 nr 链路（目前先固定，之后再改），先忽略 sub-peak-0 场景，因为 steady 固定走 nr 在此场景肯定不如 Wi-Fi 的。
 
@@ -39,7 +39,7 @@
 然后你可以通过：
 
 ```bash
-./run-myscript.sh --mode opt \
+./run-myscript.sh --mode opt --isolate-files \
   myscripts/pamptcp/pamptcp.cc \
   -- \
   --trafficProfileDir=myscripts/pamptcp/flow-priority-30/p3-sub-peak-0 \
@@ -52,6 +52,8 @@
 ```
 
 除了 p3-sub-peak-0 场景，还有 p3-sub-peak-4 p3-sub-peak-8 这些场景。
+
+注意开启 isolate-files 选项后，你可以同时运行多个场景。
 
 ---
 

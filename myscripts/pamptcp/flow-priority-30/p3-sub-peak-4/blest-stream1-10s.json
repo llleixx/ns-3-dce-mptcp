@@ -1,8 +1,8 @@
 {
   "format_version": "pamptcp-summary-v3",
   "scenario_id": "p3-sub-peak-4",
-  "traffic_profile_dir": "myscripts/pamptcp/flow-priority-30/p3-sub-peak-4",
-  "report_path": "myscripts/pamptcp/flow-priority-30/p3-sub-peak-4/blest-stream1-10s.json",
+  "traffic_profile_dir": "/root/bake/source/ns-3-dce/myscripts/pamptcp/flow-priority-30/p3-sub-peak-4",
+  "report_path": "/root/bake/source/ns-3-dce/myscripts/pamptcp/flow-priority-30/p3-sub-peak-4/blest-stream1-10s.json",
   "mptcp_scheduler": "blest",
   "sim_time_seconds": 10.000000,
   "sink_start_seconds": 1.000000,
@@ -24,11 +24,11 @@
   ],
   "packet_sink": {
     "available": true,
-    "total_rx_bytes": 568098636,
+    "total_rx_bytes": 568972572,
     "accepted_sockets": 30,
     "payload_start_seconds": 2.172850,
     "active_seconds": 7.827150,
-    "throughput_mbps": 580.644179
+    "throughput_mbps": 581.537415
   },
   "priority_metrics": {
     "enabled": true,
@@ -50,28 +50,28 @@
         "rx_bytes": 453145500,
         "throughput_mbps": 604.194000,
         "delay_ms": {
-          "mean": 4.127621,
-          "p50": 0.907582,
-          "p95": 18.297633,
-          "p99": 19.560383,
-          "p999": 24.033225,
-          "max": 24.733104
+          "mean": 1.968929,
+          "p50": 0.628207,
+          "p95": 11.603640,
+          "p99": 18.483104,
+          "p999": 18.483104,
+          "max": 18.483104
         },
         "peak_delay_ms": {
-          "mean": 244.538860,
-          "p50": 239.883599,
-          "p95": 284.073537,
-          "p99": 294.119715,
-          "p999": 296.710297,
-          "max": 296.998140
+          "mean": 176.138378,
+          "p50": 173.523599,
+          "p95": 206.298155,
+          "p99": 209.895973,
+          "p999": 210.670691,
+          "max": 210.756771
         },
         "jitter_ms": {
-          "mean": 1.924915,
-          "p50": 0.003385,
-          "p95": 11.990663,
-          "p99": 14.305821,
-          "p999": 15.975331,
-          "max": 16.157437
+          "mean": 0.572466,
+          "p50": 0.003000,
+          "p95": 3.011781,
+          "p99": 11.484739,
+          "p999": 11.492063,
+          "max": 11.492063
         },
         "has_flow_throughput_range": true,
         "min_flow_throughput_mbps": 0.036000,
@@ -81,10 +81,10 @@
         "delay_sla_threshold_ms": 0.000000,
         "delay_sla_violation_packets": 0,
         "delay_sla_violation_rate_pct": 0.000000,
-        "nr_payload_bytes": 151116576,
-        "wifi_payload_bytes": 309378096,
-        "nr_share_pct": 32.816140,
-        "wifi_share_pct": 67.183860
+        "nr_payload_bytes": 105345480,
+        "wifi_payload_bytes": 354037524,
+        "nr_share_pct": 22.931950,
+        "wifi_share_pct": 77.068050
       },
       {
         "scope": "priority",
@@ -97,12 +97,12 @@
         "rx_bytes": 162000,
         "throughput_mbps": 0.216000,
         "delay_ms": {
-          "mean": 2.323886,
-          "p50": 3.256365,
-          "p95": 3.516097,
-          "p99": 5.182168,
-          "p999": 5.923501,
-          "max": 6.005871
+          "mean": 1.510544,
+          "p50": 0.587419,
+          "p95": 3.470651,
+          "p99": 3.470651,
+          "p999": 3.470651,
+          "max": 3.470651
         },
         "peak_delay_ms": {
           "mean": 0.000000,
@@ -113,12 +113,12 @@
           "max": 0.000000
         },
         "jitter_ms": {
-          "mean": 0.391637,
-          "p50": 0.000010,
-          "p95": 2.944336,
-          "p99": 4.130840,
-          "p999": 4.520737,
-          "max": 4.564059
+          "mean": 0.002315,
+          "p50": 0.001228,
+          "p95": 0.007045,
+          "p99": 0.008358,
+          "p999": 0.008526,
+          "max": 0.008545
         },
         "has_flow_throughput_range": true,
         "min_flow_throughput_mbps": 0.036000,
@@ -128,10 +128,10 @@
         "delay_sla_threshold_ms": 20.000000,
         "delay_sla_violation_packets": 0,
         "delay_sla_violation_rate_pct": 0.000000,
-        "nr_payload_bytes": 81000,
-        "wifi_payload_bytes": 81000,
-        "nr_share_pct": 50.000000,
-        "wifi_share_pct": 50.000000
+        "nr_payload_bytes": 54000,
+        "wifi_payload_bytes": 108000,
+        "nr_share_pct": 33.333333,
+        "wifi_share_pct": 66.666667
       },
       {
         "scope": "priority",
@@ -144,12 +144,12 @@
         "rx_bytes": 1039500,
         "throughput_mbps": 1.386000,
         "delay_ms": {
-          "mean": 3.713240,
-          "p50": 0.907582,
-          "p95": 16.745876,
-          "p99": 18.277329,
-          "p999": 20.023714,
-          "max": 20.217757
+          "mean": 0.712483,
+          "p50": 0.625246,
+          "p95": 0.954892,
+          "p99": 2.453062,
+          "p999": 4.058862,
+          "max": 4.237284
         },
         "peak_delay_ms": {
           "mean": 0.000000,
@@ -160,12 +160,12 @@
           "max": 0.000000
         },
         "jitter_ms": {
-          "mean": 2.629473,
-          "p50": 0.349518,
-          "p95": 12.291891,
-          "p99": 14.575932,
-          "p999": 15.999286,
-          "max": 16.157437
+          "mean": 0.154357,
+          "p50": 0.003000,
+          "p95": 0.701501,
+          "p99": 2.968119,
+          "p999": 3.203895,
+          "max": 3.230092
         },
         "has_flow_throughput_range": true,
         "min_flow_throughput_mbps": 0.126000,
@@ -175,10 +175,10 @@
         "delay_sla_threshold_ms": 40.000000,
         "delay_sla_violation_packets": 0,
         "delay_sla_violation_rate_pct": 0.000000,
-        "nr_payload_bytes": 257880,
-        "wifi_payload_bytes": 781704,
-        "nr_share_pct": 24.806076,
-        "wifi_share_pct": 75.193924
+        "nr_payload_bytes": 0,
+        "wifi_payload_bytes": 1039500,
+        "nr_share_pct": 0.000000,
+        "wifi_share_pct": 100.000000
       },
       {
         "scope": "priority",
@@ -191,28 +191,28 @@
         "rx_bytes": 451944000,
         "throughput_mbps": 602.592000,
         "delay_ms": {
-          "mean": 5.836576,
-          "p50": 0.695831,
-          "p95": 18.658104,
-          "p99": 21.706500,
-          "p999": 24.430444,
-          "max": 24.733104
+          "mean": 3.810177,
+          "p50": 0.694557,
+          "p95": 18.483104,
+          "p99": 18.483104,
+          "p999": 18.483104,
+          "max": 18.483104
         },
         "peak_delay_ms": {
-          "mean": 244.538860,
-          "p50": 239.883599,
-          "p95": 284.073537,
-          "p99": 294.119715,
-          "p999": 296.710297,
-          "max": 296.998140
+          "mean": 176.138378,
+          "p50": 173.523599,
+          "p95": 206.298155,
+          "p99": 209.895973,
+          "p999": 210.670691,
+          "max": 210.756771
         },
         "jitter_ms": {
-          "mean": 2.085975,
-          "p50": 0.003000,
-          "p95": 11.496995,
-          "p99": 13.985484,
-          "p999": 14.669734,
-          "max": 14.745762
+          "mean": 1.463589,
+          "p50": 0.004287,
+          "p95": 11.176417,
+          "p99": 11.492063,
+          "p999": 11.492063,
+          "max": 11.492063
         },
         "has_flow_throughput_range": true,
         "min_flow_throughput_mbps": 0.288000,
@@ -222,10 +222,10 @@
         "delay_sla_threshold_ms": 100.000000,
         "delay_sla_violation_packets": 0,
         "delay_sla_violation_rate_pct": 0.000000,
-        "nr_payload_bytes": 150777696,
-        "wifi_payload_bytes": 308515392,
-        "nr_share_pct": 32.828209,
-        "wifi_share_pct": 67.171791
+        "nr_payload_bytes": 105291480,
+        "wifi_payload_bytes": 352890024,
+        "nr_share_pct": 22.980299,
+        "wifi_share_pct": 77.019701
       }
     ]
   },
@@ -237,35 +237,43 @@
   },
   "backbone_dual_traffic": {
     "enabled": true,
-    "nr_active": 17,
-    "wifi_active": 25,
-    "both_active": 12,
+    "nr_active": 8,
+    "wifi_active": 26,
+    "both_active": 4,
     "total_flows": 30,
-    "nr_payload_bytes": 151116576,
-    "wifi_payload_bytes": 309378096,
-    "nr_throughput_mbps": 201.488768,
-    "wifi_throughput_mbps": 412.504128,
+    "nr_payload_bytes": 105345480,
+    "wifi_payload_bytes": 354037524,
+    "nr_throughput_mbps": 140.460640,
+    "wifi_throughput_mbps": 472.050032,
     "missing_nr_node_ids": [
       0,
       1,
+      2,
       5,
+      6,
       7,
+      8,
+      9,
       10,
+      11,
       12,
       13,
+      14,
       15,
+      16,
+      21,
       23,
       25,
       26,
       27,
-      28
+      28,
+      29
     ],
     "missing_wifi_node_ids": [
-      2,
       3,
       4,
-      11,
-      29
+      22,
+      24
     ]
   },
   "dual_link_payload": {

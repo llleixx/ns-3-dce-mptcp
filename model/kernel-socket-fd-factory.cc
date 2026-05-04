@@ -27,6 +27,7 @@
 #include "ns3/mac64-address.h"
 #include "ns3/packet.h"
 #include "exec-utils.h"
+#include <inttypes.h>
 #include <dlfcn.h>
 #include <string.h>
 #include <stdio.h>
@@ -38,6 +39,54 @@
 NS_LOG_COMPONENT_DEFINE ("DceKernelSocketFdFactory");
 
 namespace ns3 {
+
+namespace {
+
+bool
+IsEnvEnabled (const char *name)
+{
+  const char *value = ::getenv (name);
+  return value != 0 && value[0] != '\0' && strcmp (value, "0") != 0;
+}
+
+bool
+GetEnvInt64 (const char *name, int64_t *value)
+{
+  const char *text = ::getenv (name);
+  if (text == 0 || text[0] == '\0')
+    {
+      return false;
+    }
+
+  char *end = 0;
+  long long parsed = strtoll (text, &end, 10);
+  if (end == text || (end != 0 && *end != '\0'))
+    {
+      return false;
+    }
+
+  *value = parsed;
+  return true;
+}
+
+bool
+ShouldTraceCount (const char *enabledName, const char *limitName, uint64_t count)
+{
+  if (!IsEnvEnabled (enabledName))
+    {
+      return false;
+    }
+
+  int64_t limit = 0;
+  if (!GetEnvInt64 (limitName, &limit) || limit < 0)
+    {
+      return true;
+    }
+
+  return count <= static_cast<uint64_t> (limit);
+}
+
+} // namespace
 
 // Sadly NetDevice Callback add by method AddLinkChangeCallback take no parameters ..
 // .. so we need to create the following class to link NetDevice and KernelSocketFdFactory together
@@ -87,14 +136,24 @@ KernelSocketFdFactory::GetTypeId (void)
   return tid;
 }
 KernelSocketFdFactory::KernelSocketFdFactory ()
-  : m_loader (0),
-    m_exported (0),
-    m_alloc (new KingsleyAlloc ()),
-    m_logFile (0)
+  : m_exported (0),
+    m_loader (0),
+    m_logFile (0),
+    m_randomCallCount (0),
+    m_eventScheduleCount (0),
+    m_eventExecuteCount (0),
+    m_devTxCount (0),
+    m_devRxCount (0),
+    m_alloc (new KingsleyAlloc ())
 {
   TypeId::LookupByNameFailSafe ("ns3::LteUeNetDevice", &m_lteUeTid);
   TypeId::LookupByNameFailSafe ("ns3::NrUeNetDevice", &m_nrUeTid);
   m_variable = CreateObject<UniformRandomVariable> ();
+  int64_t stream = 0;
+  if (GetEnvInt64 ("DCE_KERNEL_RANDOM_STREAM", &stream))
+    {
+      m_variable->SetStream (stream);
+    }
 }
 
 KernelSocketFdFactory::~KernelSocketFdFactory ()
@@ -262,13 +321,66 @@ KernelSocketFdFactory::Random (struct SimKernel *kernel)
     {
       u.buffer[i] = self->m_variable->GetInteger (0,255);
     }
+  self->m_randomCallCount++;
+  if (IsEnvEnabled ("DCE_KERNEL_RANDOM_TRACE"))
+    {
+      Ptr<Node> node = self->GetObject<Node> ();
+      fprintf (stderr,
+               "[dce-random] factory=%p node=%u call=%" PRIu64 " now_ns=%" PRId64 " value=%lu\n",
+               self,
+               node != 0 ? node->GetId () : UINT32_MAX,
+               self->m_randomCallCount,
+               Simulator::Now ().GetNanoSeconds (),
+               u.v);
+    }
   return u.v;
 }
+
+uint64_t
+GetPointerSeq (std::map<void *, uint64_t> *seqs, void *ptr)
+{
+  std::map<void *, uint64_t>::const_iterator found = seqs->find (ptr);
+  if (found != seqs->end ())
+    {
+      return found->second;
+    }
+  uint64_t seq = seqs->size () + 1;
+  (*seqs)[ptr] = seq;
+  return seq;
+}
+
 void
 KernelSocketFdFactory::EventTrampoline (void (*fn)(void *context),
                                        void *context, void (*pre_fn)(void),
                                        Ptr<EventIdHolder> event)
 {
+  m_eventExecuteCount++;
+  if (ShouldTraceCount ("DCE_KERNEL_EVENT_TRACE",
+                        "DCE_KERNEL_EVENT_TRACE_LIMIT",
+                        m_eventExecuteCount))
+    {
+      Ptr<Node> node = GetObject<Node> ();
+      fprintf (stderr,
+               "[dce-event-exec] exec=%" PRIu64 " sched=%" PRIu64
+               " node=%u now_ns=%" PRId64 " sched_now_ns=%" PRId64
+               " delay_ns=%" PRIu64 " target_ns=%" PRIu64
+               " eid_ts=%" PRIu64 " eid_uid=%u eid_ctx=%u fn_seq=%" PRIu64
+               " ctx_seq=%" PRIu64 " fn=%p ctx=%p\n",
+               m_eventExecuteCount,
+               event->scheduleSeq,
+               node != 0 ? node->GetId () : UINT32_MAX,
+               Simulator::Now ().GetNanoSeconds (),
+               event->scheduleNowNs,
+               event->delayNs,
+               event->targetNs,
+               event->id.GetTs (),
+               event->id.GetUid (),
+               event->id.GetContext (),
+               event->functionSeq,
+               event->contextSeq,
+               (void *) event->fn,
+               event->context);
+    }
   m_loader->NotifyStartExecute ();
   pre_fn ();
   fn (context);
@@ -281,9 +393,44 @@ KernelSocketFdFactory::EventScheduleNs (struct SimKernel *kernel, __u64 ns, void
   KernelSocketFdFactory *self = (KernelSocketFdFactory *)kernel;
   Ptr<EventIdHolder> ev = Create<EventIdHolder> ();
   TaskManager *manager = TaskManager::Current ();
+  const int64_t nowNs = Simulator::Now ().GetNanoSeconds ();
+  const uint64_t targetNs = static_cast<uint64_t> (nowNs) + ns;
+
+  ev->scheduleSeq = ++self->m_eventScheduleCount;
+  ev->scheduleNowNs = nowNs;
+  ev->delayNs = ns;
+  ev->targetNs = targetNs;
+  ev->functionSeq = GetPointerSeq (&self->m_eventFunctionSeqs, (void *) fn);
+  ev->contextSeq = GetPointerSeq (&self->m_eventContextSeqs, context);
+  ev->fn = fn;
+  ev->context = context;
 
   ev->id = manager->ScheduleMain (NanoSeconds (ns),
                                   MakeEvent (&KernelSocketFdFactory::EventTrampoline, self, fn, context, pre_fn, ev));
+  if (ShouldTraceCount ("DCE_KERNEL_EVENT_TRACE",
+                        "DCE_KERNEL_EVENT_TRACE_LIMIT",
+                        ev->scheduleSeq))
+    {
+      Ptr<Node> node = self->GetObject<Node> ();
+      fprintf (stderr,
+               "[dce-event-sched] sched=%" PRIu64
+               " node=%u now_ns=%" PRId64 " delay_ns=%" PRIu64
+               " target_ns=%" PRIu64 " eid_ts=%" PRIu64 " eid_uid=%u"
+               " eid_ctx=%u fn_seq=%" PRIu64 " ctx_seq=%" PRIu64
+               " fn=%p ctx=%p\n",
+               ev->scheduleSeq,
+               node != 0 ? node->GetId () : UINT32_MAX,
+               nowNs,
+               static_cast<uint64_t> (ns),
+               targetNs,
+               ev->id.GetTs (),
+               ev->id.GetUid (),
+               ev->id.GetContext (),
+               ev->functionSeq,
+               ev->contextSeq,
+               (void *) fn,
+               context);
+    }
 
   return &ev->id;
 }
@@ -401,6 +548,26 @@ KernelSocketFdFactory::DevXmit (struct SimKernel *kernel, struct SimDevice *dev,
   dest.CopyFrom (hdr->h_dest);
   TaskManager *manager = TaskManager::Current ();
   bool r = false;
+  self->m_devTxCount++;
+  if (ShouldTraceCount ("DCE_KERNEL_PACKET_TRACE",
+                        "DCE_KERNEL_PACKET_TRACE_LIMIT",
+                        self->m_devTxCount))
+    {
+      Ptr<Node> node = self->GetObject<Node> ();
+      fprintf (stderr,
+               "[dce-dev-tx] tx=%" PRIu64 " node=%u now_ns=%" PRId64
+               " dev_seq=%" PRIu64 " dev=%p nsdev=%p packet_uid=%" PRIu64
+               " packet_len=%d proto=0x%04x\n",
+               self->m_devTxCount,
+               node != 0 ? node->GetId () : UINT32_MAX,
+               Simulator::Now ().GetNanoSeconds (),
+               GetPointerSeq (&self->m_deviceSeqs, dev),
+               dev,
+               nsDev,
+               p->GetUid (),
+               len,
+               protocol);
+    }
 
   manager->ExecOnMain (MakeEvent (&KernelSocketFdFactory::SendMain, &r, nsDev, p, dest, protocol));
 }
@@ -434,6 +601,29 @@ KernelSocketFdFactory::RxFromDevice (Ptr<NetDevice> device, Ptr<const Packet> p,
   if (dev == 0)
     {
       return;
+    }
+  m_devRxCount++;
+  if (ShouldTraceCount ("DCE_KERNEL_PACKET_TRACE",
+                        "DCE_KERNEL_PACKET_TRACE_LIMIT",
+                        m_devRxCount))
+    {
+      Ptr<Node> node = GetObject<Node> ();
+      fprintf (stderr,
+               "[dce-dev-rx] rx=%" PRIu64 " node=%u now_ns=%" PRId64
+               " dev_seq=%" PRIu64 " dev=%p nsdev=%p packet_uid=%" PRIu64
+               " packet_size=%u proto=0x%04x"
+               " from_type=%d to_type=%d\n",
+               m_devRxCount,
+               node != 0 ? node->GetId () : UINT32_MAX,
+               Simulator::Now ().GetNanoSeconds (),
+               GetPointerSeq (&m_deviceSeqs, dev),
+               dev,
+               PeekPointer (device),
+               p->GetUid (),
+               p->GetSize (),
+               protocol,
+               from.GetLength (),
+               to.GetLength ());
     }
   m_loader->NotifyStartExecute (); // Restore the memory of the kernel before access it !
   struct SimDevicePacket packet = m_exported->dev_create_packet (dev, p->GetSize () + 14);
