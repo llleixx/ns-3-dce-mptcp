@@ -1,0 +1,2 @@
+template_id,priority,appSteadyRate,appBurstRate,appTrafficModel,appSteadyTime,appBurstTime,appInitialSendDelay
+b262144,3,2097152bps,2097152bps,duration,ns3::ConstantRandomVariable[Constant=1.0],ns3::ConstantRandomVariable[Constant=0.0],0

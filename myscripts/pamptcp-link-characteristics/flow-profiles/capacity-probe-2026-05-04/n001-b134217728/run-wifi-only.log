@@ -1,0 +1,10 @@
++ /root/bake/source/ns-3-dce/build-opt-dce-rel/myscripts/pamptcp-link-characteristics/bin/link-characteristics --trafficProfileDir=/root/bake/source/ns-3-dce/myscripts/pamptcp-link-characteristics/flow-profiles/capacity-probe-2026-05-04/n001-b134217728 --numAps=1 --pathMode=wifi-only --simTime=10.0 --statsStart=4.0 --statsStop=10.0 --clientStartJitter=1.0 --clientStartJitterStream=1 --mptcpScheduler=default
+DCE_FILES_DIR=/tmp/ns3-dce-files.xyeexn6i
+[120-demo] Summary report file: /root/bake/source/ns-3-dce/myscripts/pamptcp-link-characteristics/flow-profiles/capacity-probe-2026-05-04/n001-b134217728/default-wifi-only-stream1-10s.json
+[120-demo] Path mode: wifi-only useNr=no useWifi=yes requestedMptcp=yes effectiveMptcp=no
+[120-demo] Single-path mode disables MPTCP subflow setup to isolate the selected access link.
+[120-demo] Traffic profile: dir=/root/bake/source/ns-3-dce/myscripts/pamptcp-link-characteristics/flow-profiles/capacity-probe-2026-05-04/n001-b134217728 scenario=n001-b134217728 statsWindow=[4,10]s p3=1
+[120-demo] NR RNG streams: base=10000 used=11
+[120-demo] ClientStart jitter: max=1.000000s minOffset=0.702607s maxOffset=0.702607s
+[120-demo] UE RRC summary (t=0.9 @0.9s) connected=1/1 randomAccess=0 idleConnecting=0 other=0
+[120-demo] UE RRC summary (pre-clientStart @1.05s) connected=1/1 randomAccess=0 idleConnecting=0 other=0

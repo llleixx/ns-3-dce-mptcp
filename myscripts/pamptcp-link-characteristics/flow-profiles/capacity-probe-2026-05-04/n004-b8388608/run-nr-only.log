@@ -1,0 +1,19 @@
++ /root/bake/source/ns-3-dce/build-opt-dce-rel/myscripts/pamptcp-link-characteristics/bin/link-characteristics --trafficProfileDir=/root/bake/source/ns-3-dce/myscripts/pamptcp-link-characteristics/flow-profiles/capacity-probe-2026-05-04/n004-b8388608 --numAps=1 --pathMode=nr-only --simTime=10.0 --statsStart=4.0 --statsStop=10.0 --clientStartJitter=1.0 --clientStartJitterStream=1 --mptcpScheduler=default
+DCE_FILES_DIR=/tmp/ns3-dce-files.7bhspqv5
+[120-demo] Summary report file: /root/bake/source/ns-3-dce/myscripts/pamptcp-link-characteristics/flow-profiles/capacity-probe-2026-05-04/n004-b8388608/default-nr-only-stream1-10s.json
+[120-demo] Path mode: nr-only useNr=yes useWifi=no requestedMptcp=yes effectiveMptcp=no
+[120-demo] Single-path mode disables MPTCP subflow setup to isolate the selected access link.
+[120-demo] Traffic profile: dir=/root/bake/source/ns-3-dce/myscripts/pamptcp-link-characteristics/flow-profiles/capacity-probe-2026-05-04/n004-b8388608 scenario=n004-b8388608 statsWindow=[4,10]s p3=4
+[120-demo] NR RNG streams: base=10000 used=26
+[120-demo] ClientStart jitter: max=1.000000s minOffset=0.621091s maxOffset=0.895889s
+[120-demo] UE RRC summary (t=0.9 @0.9s) connected=4/4 randomAccess=0 idleConnecting=0 other=0
+[120-demo] UE RRC summary (pre-clientStart @1.05s) connected=4/4 randomAccess=0 idleConnecting=0 other=0
+[120-demo] UE RRC summary (pre-stop @9.95s) connected=4/4 randomAccess=0 idleConnecting=0 other=0
+[120-demo] PacketSink totalRxBytes=248067960 acceptedSockets=4 payloadStartSeconds=2.725 activeSeconds=7.275 throughputMbps=272.803
+[120-demo] Priority metrics window: start=4.000s stop=10.000s duration=6.000s scenario=n004-b8388608 scheduler=default
+[120-demo] Priority metrics activeFlows=4/4 delayActiveFlows=4 rxPackets=24 delayRxPackets=24 rxBytes=201326592 throughputMbps=268.435 meanDelayMs=485.525 p50DelayMs=486.383 p95DelayMs=560.983 p99DelayMs=560.983 p999DelayMs=560.983 maxDelayMs=560.983 peakMeanDelayMs=0.000 peakP50DelayMs=0.000 peakP95DelayMs=0.000 peakP99DelayMs=0.000 peakP999DelayMs=0.000 peakMaxDelayMs=0.000 meanJitterMs=0.752 p95JitterMs=2.263 p99JitterMs=2.453 p999JitterMs=2.495 maxJitterMs=2.500 minFlowThroughputMbps=67.109 maxFlowThroughputMbps=67.109 slaThresholdMs=priority-specific slaViolationPackets=24 slaViolationRatePct=100.000 nrPayloadBytes=201332384 wifiPayloadBytes=0 nrSharePct=100.000 wifiSharePct=0.000
+[120-demo] Priority metrics priority=3 activeFlows=4/4 delayActiveFlows=4 rxPackets=24 delayRxPackets=24 rxBytes=201326592 throughputMbps=268.435 meanDelayMs=485.525 p50DelayMs=486.383 p95DelayMs=560.983 p99DelayMs=560.983 p999DelayMs=560.983 maxDelayMs=560.983 peakMeanDelayMs=0.000 peakP50DelayMs=0.000 peakP95DelayMs=0.000 peakP99DelayMs=0.000 peakP999DelayMs=0.000 peakMaxDelayMs=0.000 meanJitterMs=0.752 p95JitterMs=2.263 p99JitterMs=2.453 p999JitterMs=2.495 maxJitterMs=2.500 minFlowThroughputMbps=67.109 maxFlowThroughputMbps=67.109 slaThresholdMs=100.000 slaViolationPackets=24 slaViolationRatePct=100.000 nrPayloadBytes=201332384 wifiPayloadBytes=0 nrSharePct=100.000 wifiSharePct=0.000
+[120-demo] Priority metrics note: unknownPackets=0 outsideWindowPackets=4
+[120-demo] Client connect summary: connected=4/4 inProgress=0 totalConnectFailures=0
+[120-demo] Backbone dual-traffic summary: nrActive=4/4 wifiActive=0/4 bothActive=0/4 nrPayloadBytes=201332384 wifiPayloadBytes=0 nrThroughputMbps=268.443 wifiThroughputMbps=0.000
+[120-demo] Backbone missing WiFi payload UEs: 0,1,2,3

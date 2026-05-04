@@ -452,10 +452,13 @@ BuildSummaryReportPath (const std::string &directory,
                         double simTimeSeconds)
 {
   std::ostringstream oss;
-  oss << SanitizeFilenameComponent (mptcpScheduler);
   if (pathMode != "dual")
     {
-      oss << "-" << SanitizeFilenameComponent (pathMode);
+      oss << SanitizeFilenameComponent (pathMode);
+    }
+  else
+    {
+      oss << SanitizeFilenameComponent (mptcpScheduler);
     }
   oss
       << "-stream" << clientStartJitterStream

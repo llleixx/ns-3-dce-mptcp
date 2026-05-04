@@ -53,7 +53,7 @@
 
 除了 p3-sub-peak-0 场景，还有 p3-sub-peak-4 p3-sub-peak-8 这些场景。
 
-注意开启 isolate-files 选项后，你可以同时运行多个场景。
+注意开启 isolate-files 选项后，你可以同时运行多个场景，不用同一时间只跑一个而浪费时间。
 
 ---
 
@@ -66,71 +66,3 @@
 注意在执行过程中不要参考其他文档结论或场景结果，其他文档结论很可能过时了。
 
 注意在执行过程中不要参考本文没有提及的 MPTCP 调度算法（看也不要看），也是过时的。
-
----
-
-## 本次完成记录：`nrsafe`
-
-新增调度器名称：`nrsafe`。
-
-实现位置：
-
-- `/root/bake/source/net-next-nuse-mptcp-0.92/net/mptcp/mptcp_nrsafe.c`
-- `/root/bake/source/net-next-nuse-mptcp-0.92/net/mptcp/Kconfig`
-- `/root/bake/source/net-next-nuse-mptcp-0.92/net/mptcp/Makefile`
-- `/root/bake/source/net-next-nuse-mptcp-0.92/arch/lib/defconfig`
-
-核心设计：
-
-- 非 P3 peak 流量优先走 NR，符合当前“稳态先固定 NR”的实验前提。
-- P3 peak 流量先沿用 default 调度器的路径选择，保留多路径聚合能力。
-- 如果 default 选择 Wi-Fi，直接允许发送。
-- 如果 default 选择 NR，则进入 NR guard：
-  - 记录每条 subflow 的最小 RTT、当前 RTT 和发送队列估计排队时延。
-  - NR RTT 膨胀、NR 排队时延、NR cwnd 占用超过阈值时，认为继续发送 peak 会伤害 NR steady 延迟，转回 Wi-Fi。
-  - 只有 NR 接近 clean baseline 时才补充 NR peak assist credit。
-  - Wi-Fi 排队明显变高时进入 overflow assist，允许更大的 NR credit，但仍受 NR RTT/queue guard 约束。
-
-构建与部署：
-
-```bash
-cd /root/bake/source/net-next-nuse-mptcp-0.92
-make library ARCH=lib -j4
-cp arch/lib/tools/libsim-linux-4.4.110.so /root/bake/build-opt-dce-rel/bin_dce/libsim-linux-4.4.110.so
-cp arch/lib/tools/libsim-linux-4.4.110.so /root/bake/build/bin_dce/libsim-linux-4.4.110.so
-```
-
-验证命令模板：
-
-```bash
-./run-myscript.sh --mode opt --timeout 1800 --clean-files \
-  myscripts/pamptcp/pamptcp.cc -- \
-  --trafficProfileDir=myscripts/pamptcp/flow-priority-30/p3-sub-peak-8 \
-  --numAps=1 \
-  --simTime=10 \
-  --statsStart=4 \
-  --statsStop=10 \
-  --clientStartJitter=1.0 \
-  --mptcpScheduler=nrsafe
-```
-
-结果汇总（单位：ms；`delay_ms` 只统计 steady，`peak_delay_ms` 近似表示 peak 完成时间）：
-
-| 场景 | 调度器 | steady mean | steady p95 | steady p99 | steady max | peak mean | peak p95 | peak p99 | peak max | NR 占比 |
-|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
-| p3-sub-peak-0 | default | 0.665 | 0.696 | 0.828 | 3.491 | 0.000 | 0.000 | 0.000 | 0.000 | 0.186% |
-| p3-sub-peak-0 | blest | 0.715 | 0.696 | 2.447 | 5.739 | 0.000 | 0.000 | 0.000 | 0.000 | 0.656% |
-| p3-sub-peak-0 | nrsafe | 4.598 | 5.993 | 6.316 | 6.490 | 0.000 | 0.000 | 0.000 | 0.000 | 99.850% |
-| p3-sub-peak-4 | default | 3.511 | 18.483 | 18.483 | 18.483 | 265.884 | 303.439 | 316.102 | 319.267 | 34.344% |
-| p3-sub-peak-4 | blest | 4.128 | 18.298 | 19.560 | 24.733 | 244.539 | 284.074 | 294.120 | 296.998 | 32.816% |
-| p3-sub-peak-4 | nrsafe | 5.072 | 6.479 | 17.933 | 18.483 | 256.602 | 290.416 | 298.019 | 299.813 | 10.789% |
-| p3-sub-peak-8 | default | 13.030 | 19.715 | 21.828 | 37.248 | 483.202 | 696.071 | 935.116 | 1085.514 | 32.247% |
-| p3-sub-peak-8 | blest | 11.765 | 18.488 | 20.683 | 23.465 | 494.319 | 810.685 | 904.993 | 938.236 | 37.252% |
-| p3-sub-peak-8 | nrsafe | 10.915 | 18.483 | 19.715 | 19.733 | 634.023 | 1110.049 | 1485.634 | 1536.140 | 19.759% |
-
-结论：
-
-- `p3-sub-peak-0` 按任务说明不作为胜负判断；当前 steady 固定 NR，所以它自然不如 Wi-Fi-heavy 的 default/blest。
-- `p3-sub-peak-4` 中，`nrsafe` 明显降低 steady p95，并把 peak 完成时间保持在接近 blest/default 的区间。
-- `p3-sub-peak-8` 中，`nrsafe` 明显降低 steady p99 和 max，但 peak tail 慢于 default/blest。这是当前算法主动保护 NR steady 延迟的代价。
-- 当前版本适合作为“NR steady latency protective scheduler”：它不是 peak-only 最优，而是在 default 聚合基础上限制 NR peak 注入，避免 NR 上 steady 流量被 peak 拖出高尾延迟。

@@ -1,0 +1,37 @@
+# -*- Mode: python; py-indent-offset: 4; indent-tabs-mode: nil; coding: utf-8; -*-
+
+import ns3waf
+
+
+def configure(conf):
+    pass
+
+
+def build(bld):
+    nr_lib = 'ns3.35-nr-' + bld.env['LIB_SUFFIX']
+    bld.build_a_script(
+        'dce',
+        needed=[
+            'core',
+            'network',
+            'internet',
+            'internet-apps',
+            'point-to-point',
+            'csma',
+            'mobility',
+            'applications',
+            'dce',
+            'lte',
+            'wifi',
+            'spectrum',
+        ],
+        target='bin/link-characteristics',
+        source=[
+            'link-characteristics.cc',
+            'pamptcp-profile.cc',
+            'link-characteristics-report.cc',
+            '../app-test/rate-dual-helper.cc',
+            '../app-test/rate-dual-application.cc',
+        ],
+        lib=[nr_lib],
+    )

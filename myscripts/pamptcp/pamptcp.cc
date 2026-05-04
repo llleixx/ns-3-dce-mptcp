@@ -410,7 +410,7 @@ main (int argc, char *argv[])
   cmd.AddValue ("wifiEnableBsrp",
                 "Enable WiFi BSRP for UL OFDMA scheduling",
                 wifiEnableBsrp);
-  cmd.AddValue ("mptcpScheduler", "MPTCP scheduler (e.g. default, default_v1, default_v1_full, roundrobin, redundant, blest, ecf, pablest, linksense, tailassist, redassist, flowsplit, pam)", mptcpScheduler);
+  cmd.AddValue ("mptcpScheduler", "MPTCP scheduler (e.g. default, default_v1, default_v1_full, roundrobin, redundant, blest, ecf, pablest, linksense, tailassist, redassist, flowsplit, pam, nrsafe, nrlead)", mptcpScheduler);
   cmd.AddValue ("pathMode",
                 "Path mode: dual, wifi-only, or nr-only",
                 pathMode);
